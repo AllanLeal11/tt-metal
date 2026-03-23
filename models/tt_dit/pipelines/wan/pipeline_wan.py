@@ -18,7 +18,6 @@ from diffusers.models import AutoencoderKLWan
 from diffusers.models import WanTransformer3DModel as TorchWanTransformer3DModel
 from diffusers.pipelines.pipeline_utils import DiffusionPipeline
 from diffusers.pipelines.wan.pipeline_output import WanPipelineOutput
-from diffusers.schedulers import FlowMatchEulerDiscreteScheduler, UniPCMultistepScheduler
 from diffusers.video_processor import VideoProcessor
 from loguru import logger
 from transformers import AutoTokenizer, UMT5EncoderModel
@@ -31,9 +30,10 @@ from ...models.transformers.wan2_2.transformer_wan import WanTransformer3DModel
 from ...models.vae.vae_wan2_1 import WanDecoder
 from ...parallel.config import DiTParallelConfig, EncoderParallelConfig, ParallelFactor, VaeHWParallelConfig
 from ...parallel.manager import CCLManager
-from ...utils import cache
+from ...solvers import UniPCSolver, UniPCVariant, schedules
+from ...utils import cache, tensor
 from ...utils.conv3d import conv3d_blocking_hash
-from ...utils.tensor import bf16_tensor, float32_tensor, local_device_to_torch, typed_tensor_2dshard
+from ...utils.tensor import float32_tensor, typed_tensor_2dshard
 
 EXAMPLE_DOC_STRING = """
     Examples:
@@ -147,7 +147,7 @@ class WanPipeline(DiffusionPipeline, WanLoraLoaderMixin):
         num_links,
         *,
         checkpoint_name: str = "Wan-AI/Wan2.2-T2V-A14B-Diffusers",
-        scheduler: FlowMatchEulerDiscreteScheduler = None,
+        flow_shift: float = 12.0,
         boundary_ratio: Optional[float] = 0.875,
         expand_timesteps: bool = False,  # Wan2.2 ti2v
         dynamic_load=False,
@@ -157,6 +157,7 @@ class WanPipeline(DiffusionPipeline, WanLoraLoaderMixin):
         vae_dtype: ttnn.DataType = ttnn.bfloat16,
         vae_use_cache: bool = True,
         sdpa_t_fracture_w_only: bool = False,
+        warmup_shape: Optional[tuple] = None,
     ):
         super().__init__()
 
@@ -169,9 +170,7 @@ class WanPipeline(DiffusionPipeline, WanLoraLoaderMixin):
             checkpoint_name, subfolder="text_encoder", trust_remote_code=True
         )
         self.vae = AutoencoderKLWan.from_pretrained(checkpoint_name, subfolder="vae", trust_remote_code=True)
-        self.scheduler = scheduler or UniPCMultistepScheduler.from_pretrained(
-            checkpoint_name, subfolder="scheduler", flow_shift=12.0
-        )
+        self._flow_shift = flow_shift
         self.torch_transformer = TorchWanTransformer3DModel.from_pretrained(
             checkpoint_name, subfolder="transformer", trust_remote_code=True
         )
@@ -281,6 +280,8 @@ class WanPipeline(DiffusionPipeline, WanLoraLoaderMixin):
             TransformerState(self.transformer_2, "transformer_2", self.torch_transformer_2, guidance_scale=3.0),
         ]
 
+        self._solver = UniPCSolver(order=2, variant=UniPCVariant.B2)
+
         if self.dynamic_load:
             # setup models that cannot be loaded together with the corresponding model.
             # The module loading utility will take care of the necessary unloading.
@@ -318,7 +319,8 @@ class WanPipeline(DiffusionPipeline, WanLoraLoaderMixin):
         )
 
         # TODO: Reset buffers for change in resolution. Also reinitialize trace
-        self.warmup_buffers(**self.get_default_resolution())
+        h, w, f = warmup_shape or self.get_default_warmup_shape()
+        self.warmup_buffers(height=h, width=w, num_frames=f)
 
     def prepare_text_conditioning(self, tt_model, prompt_embeds, buffer, traced=False):
         prompt_1BLP = tt_model.prepare_text_conditioning(prompt_embeds)
@@ -328,17 +330,17 @@ class WanPipeline(DiffusionPipeline, WanLoraLoaderMixin):
             ttnn.copy(prompt_1BLP, buffer)
         return buffer
 
-    def get_default_resolution(self):
+    def get_default_warmup_shape(self):
         if self.mesh_device.shape.mesh_size() >= 32:
-            return {"height": 720, "width": 1280}
-        return {"height": 480, "width": 832}
+            return (720, 1280, 81)
+        return (480, 832, 81)
 
-    def warmup_buffers(self, height, width):
+    def warmup_buffers(self, height, width, num_frames):
         self.run_single_prompt(
             prompt="warmup",
             height=height,
             width=width,
-            num_frames=81,
+            num_frames=num_frames,
             num_inference_steps=2,
         )
 
@@ -347,7 +349,7 @@ class WanPipeline(DiffusionPipeline, WanLoraLoaderMixin):
         mesh_device,
         *,
         checkpoint_name="Wan-AI/Wan2.2-T2V-A14B-Diffusers",
-        scheduler=None,
+        flow_shift=12.0,
         sp_axis=None,
         tp_axis=None,
         num_links=None,
@@ -357,6 +359,7 @@ class WanPipeline(DiffusionPipeline, WanLoraLoaderMixin):
         pipeline_class=None,
         vae_use_cache=None,
         sdpa_t_fracture_w_only=None,
+        warmup_shape=None,
     ):
         device_configs = {}
         if ttnn.device.is_blackhole():
@@ -446,15 +449,18 @@ class WanPipeline(DiffusionPipeline, WanLoraLoaderMixin):
             encoder_parallel_config=encoder_parallel_config,
             num_links=num_links or config["num_links"],
             boundary_ratio=0.875,
-            scheduler=scheduler,
+            flow_shift=flow_shift,
             dynamic_load=dynamic_load if dynamic_load is not None else config["dynamic_load"],
             topology=topology or config["topology"],
             is_fsdp=is_fsdp if is_fsdp is not None else config["is_fsdp"],
             checkpoint_name=checkpoint_name,
             vae_use_cache=vae_use_cache if vae_use_cache is not None else config.get("vae_use_cache", True),
-            sdpa_t_fracture_w_only=sdpa_t_fracture_w_only
-            if sdpa_t_fracture_w_only is not None
-            else config.get("sdpa_t_fracture_w_only", False),
+            sdpa_t_fracture_w_only=(
+                sdpa_t_fracture_w_only
+                if sdpa_t_fracture_w_only is not None
+                else config.get("sdpa_t_fracture_w_only", False)
+            ),
+            warmup_shape=warmup_shape,
         )
 
     def _prepare_text_encoder(self):
@@ -846,9 +852,18 @@ class WanPipeline(DiffusionPipeline, WanLoraLoaderMixin):
                 max_sequence_length=max_sequence_length,
             )
 
-        # 4. Prepare timesteps
-        self.scheduler.set_timesteps(num_inference_steps, device=device)
-        timesteps = self.scheduler.timesteps
+        # 4. Prepare schedule
+        (sigmas, alphas) = schedules.shifted_linear(
+            num_inference_steps, shift=self._flow_shift, sigma_small=0.001 + 0.999 / num_inference_steps
+        )
+        sigmas[0] -= 1e-6
+
+        # diffusers uses float32 for the schedule
+        sigmas = torch.tensor(sigmas, dtype=torch.float32).tolist()
+        alphas = (1 - torch.tensor(sigmas, dtype=torch.float32)).tolist()
+
+        timesteps = torch.tensor([s * 1000 for s in sigmas[:-1]])
+        self._solver.set_schedule(sigmas, alphas)
 
         # 5. Prepare latent variables
         if seed is not None:
@@ -870,18 +885,17 @@ class WanPipeline(DiffusionPipeline, WanLoraLoaderMixin):
         mask = torch.ones(latents.shape, dtype=torch.float32, device=device)
 
         # 6. Denoising loop
-        num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
         self._num_timesteps = len(timesteps)
 
         if self.config.boundary_ratio is not None:
-            boundary_timestep = self.config.boundary_ratio * self.scheduler.config.num_train_timesteps
+            boundary_timestep = self.config.boundary_ratio * 1000
         else:
             boundary_timestep = -1  # Always use transformer (no transformer_2)
 
         if profiler:
             profiler.start("denoising", profiler_iteration)
 
-        permuted_latent = None
+        permuted_latent_tt = None
         rope_args = None
 
         latent_frames, latent_height, latent_width = latents.shape[2], latents.shape[3], latents.shape[4]
@@ -903,7 +917,7 @@ class WanPipeline(DiffusionPipeline, WanLoraLoaderMixin):
                     )
                     prepared_prompts[transformer_idx] = True
 
-                if permuted_latent is None:
+                if permuted_latent_tt is None:
                     # First iteration, preprocess spatial input and prepare rope features
                     permuted_latent, patchified_seqlen = ts.model.preprocess_spatial_input_host(latents)
 
@@ -917,6 +931,14 @@ class WanPipeline(DiffusionPipeline, WanLoraLoaderMixin):
                         "trans_mat": trans_mat,
                     }
 
+                    sp_axis = ts.model.parallel_config.sequence_parallel.mesh_axis
+                    permuted_latent_tt = tensor.from_torch(
+                        permuted_latent,
+                        device=self.mesh_device,
+                        mesh_axes=[None, None, sp_axis, None],
+                        dtype=ttnn.float32,
+                    )
+
                 if self.config.expand_timesteps:
                     # seq_len: num_latent_frames * latent_height//2 * latent_width//2
                     temp_ts = (mask[0][0][:, ::2, ::2] * t).flatten()
@@ -925,14 +947,8 @@ class WanPipeline(DiffusionPipeline, WanLoraLoaderMixin):
                 else:
                     timestep = t.expand(latents.shape[0])
 
-                permuted_model_input = self.get_model_input(permuted_latent, cond_latents)
-                permuted_model_input = bf16_tensor(
-                    permuted_model_input,
-                    device=self.mesh_device,
-                    mesh_axis=self.parallel_config.sequence_parallel.mesh_axis,
-                    shard_dim=-2,
-                    on_host=traced,
-                )
+                permuted_model_input = self.get_model_input(permuted_latent_tt, cond_latents)
+                permuted_model_input = ttnn.typecast(permuted_model_input, ttnn.bfloat16)
 
                 assert timestep.ndim == 1, "Wan2.2-T2V/I2V requires a 1D timestep tensor"
                 timestep = float32_tensor(
@@ -949,17 +965,24 @@ class WanPipeline(DiffusionPipeline, WanLoraLoaderMixin):
                     **rope_args,
                     guidance_scale=ts.guidance_scale,
                     traced=traced,
+                    gather_output=False,
                 )
 
-                # Move result to host for scheduler step
-                permuted_noise_pred = local_device_to_torch(permuted_noise_pred_tt)
+                permuted_latent_tt = self._solver.step(
+                    step=i,
+                    latent=permuted_latent_tt,
+                    velocity_pred=permuted_noise_pred_tt,
+                )
 
-                # compute the previous noisy sample x_t -> x_t-1
-                permuted_latent = self.scheduler.step(permuted_noise_pred, t, permuted_latent, return_dict=False)[0]
+                progress_bar.update()
 
-                # call the callback, if provided
-                if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
-                    progress_bar.update()
+        self._current_timestep = None
+
+        sp_axis = ts.model.parallel_config.sequence_parallel.mesh_axis
+        permuted_latent_tt = ts.model.ccl_manager.all_gather_persistent_buffer(
+            permuted_latent_tt, dim=2, mesh_axis=sp_axis
+        )
+        permuted_latent = ttnn.to_torch(ttnn.get_device_tensors(permuted_latent_tt)[0])
 
         # Postprocess spatial output
         latents = ts.model.postprocess_spatial_output_host(
