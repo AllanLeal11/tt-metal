@@ -154,16 +154,25 @@ def test_forward_pass(
         dispatch_group_size=n_sp_devices,
         num_dispatch_groups=n_tp_devices,
     )
+    experts_per_chip = n_routed_experts // (n_sp_devices * n_tp_devices)
     tt_model = TtMoEGatePrefill(
         config,
         mesh_device,
         dispatch_table=dispatch_table,
+        experts_per_chip=experts_per_chip,
         weight=gate_w["weight"],
         bias=gate_w["e_score_correction_bias"],
         fallback_mode=gate_fallback_mode,
     )
     # TT forward pass
-    tt_topk_scores, tt_topk_indices, tt_logits, tt_dispatch_offsets, tt_total_counts_per_expert = tt_model(tt_input)
+    (
+        tt_topk_scores,
+        tt_topk_indices,
+        tt_logits,
+        tt_dispatch_offsets,
+        tt_total_counts_per_expert,
+        _,
+    ) = tt_model(tt_input)
 
     # Validation
     seq_len_per_device = reference_logits.shape[0] // mesh_device.shape[0]
@@ -213,8 +222,7 @@ def test_forward_pass(
     )
 
     # EP-sharded checks: offsets and totals
-    experts_per_chip = n_routed_experts // (n_sp_devices * n_tp_devices)
-    ref_dispatch_offsets, ref_expert_token_counts, _ = get_gate_outputs(
+    ref_dispatch_offsets, ref_expert_token_counts, _, _ = get_gate_outputs(
         indices=reference_topk_indices.view(n_sp_devices, seq_len_per_device, -1).int(),
         dispatch_group_size=n_sp_devices,
         num_routed_experts=n_routed_experts,
