@@ -983,6 +983,10 @@ void Cluster::read_sysmem(
     this->driver_->read_from_sysmem(vec, addr, channel & HOST_MEM_CHANNELS_MASK, size_in_bytes, src_device_id);
 }
 
+void Cluster::advance_sim_clock(ChipId device_id, uint32_t n_clocks) const {
+    this->driver_->advance_sim_clock(device_id, n_clocks);
+}
+
 std::unique_ptr<tt::umd::SysmemBuffer> Cluster::allocate_sysmem_buffer(
     ChipId device_id, size_t sysmem_buffer_size, bool map_to_noc) const {
     tt::umd::SysmemManager* sysmem_manager = this->driver_->get_chip(device_id)->get_sysmem_manager();
