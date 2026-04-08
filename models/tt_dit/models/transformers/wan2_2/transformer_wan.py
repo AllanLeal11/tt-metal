@@ -438,7 +438,7 @@ class WanTransformer3DModel(Module):
 
     def prepare_conditioning(self, timestep, encoder_hidden_states):
         """
-        Given torch inputs, execute the combined timestep and text embedding.
+        Given inputs, execute the combined timestep and text embedding.
         Return tensors on device.
         """
         tt_temb_11BD, tt_timestep_proj_1BTD = self.prepare_timestep_conditioning(timestep)
@@ -646,7 +646,7 @@ class WanTransformer3DModel(Module):
         trans_mat: ttnn.Tensor,
         timestep: ttnn.Tensor,
         guidance_scale: float,
-    ) -> tuple[ttnn.Tensor, ttnn.Tensor | None]:
+    ) -> ttnn.Tensor:
         cond = self.inner_step(
             spatial_1BNI,
             prompt_1BLP,
