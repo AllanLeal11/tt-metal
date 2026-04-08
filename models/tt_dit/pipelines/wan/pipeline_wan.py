@@ -285,9 +285,11 @@ class WanPipeline(DiffusionPipeline, WanLoraLoaderMixin):
             # setup models that cannot be loaded together with the corresponding model.
             # The module loading utility will take care of the necessary unloading.
             if ttnn.device.is_blackhole():
-                self.tt_umt5_encoder.register_coresident_exclusions(self.transformer_2)
                 self.transformer.register_coresident_exclusions(self.transformer_2)
-                self.transformer_2.register_coresident_exclusions(self.transformer, self.tt_umt5_encoder)
+                self.transformer_2.register_coresident_exclusions(self.transformer)
+                if self.mesh_device.shape.mesh_size() < 32:
+                    self.tt_umt5_encoder.register_coresident_exclusions(self.transformer_2)
+                    self.transformer_2.register_coresident_exclusions(self.transformer)
             else:
                 # WH T3K has tighter DRAM — include VAE in the unload chain so
                 # transformers and VAE never coexist in DRAM across pipeline runs.
