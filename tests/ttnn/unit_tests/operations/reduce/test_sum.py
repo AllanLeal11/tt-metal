@@ -187,7 +187,7 @@ def test_sum_subcores(device, sub_core_grids, dtype, shape):
         atol = 1e-06
         frobenius_threshold = 1e-09
     else:
-        pcc_threshold = 0.999
+        pcc_threshold = 1 
         rtol = 0.015
         atol = 4177.920
         frobenius_threshold = 0.015
