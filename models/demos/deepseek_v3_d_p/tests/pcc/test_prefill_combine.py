@@ -44,7 +44,7 @@ from models.demos.deepseek_v3_d_p.tt.moe.visualization_helpers import log_expert
 @pytest.mark.parametrize(
     "seq_len_per_chip, emb_dim, num_routed_experts, num_experts_per_tok, capacity_factor",
     [
-        (128, 7 * 1024, 16, 4, 2),
+        (1600, 7 * 1024, 32, 4, 2),
     ],
 )
 @pytest.mark.parametrize(
