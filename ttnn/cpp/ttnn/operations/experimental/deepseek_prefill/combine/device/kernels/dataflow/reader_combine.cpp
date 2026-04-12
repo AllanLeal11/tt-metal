@@ -182,14 +182,20 @@ void kernel_main() {
     }
     noc_async_read_barrier();
 
-    // Multicast expert token counts + receive_buf_addr to all idle cores
-    {
+    // Only the primary sender (expert_start_idx == 0) multicasts token counts + receive_buf_addrs.
+    // Other senders skip this block entirely — executing it from multiple cores would race-corrupt
+    // the idle cores' L1 and double-signal counter_ready_semaphore.
+    if (expert_start_idx == 0) {
         constexpr uint32_t counter_total_size = experts_tok_counter_pages * aligned_experts_tok_counter_page_size;
 
-        // Append receive_buf_addr so idle cores know where to NOC-write untilized data
+        // Append receive_buf_addr for every sender so idle cores know where to NOC-write untilized data.
+        // All sender cores share the same cb_untilize_id L1 address (identical CB layout), so fill each
+        // slot with this core's value — it is the same on every sender.
         volatile tt_l1_ptr uint32_t* receive_buf_slot =
             reinterpret_cast<volatile tt_l1_ptr uint32_t*>(counter_base_addr + counter_total_size);
-        receive_buf_slot[0] = get_write_ptr(cb_untilize_id);
+        for (uint32_t s = 0; s < num_cores; s++) {
+            receive_buf_slot[s] = get_write_ptr(cb_untilize_id);
+        }
 
         constexpr uint32_t mcast_total_size = counter_total_size + l1_alignment;
         uint32_t off = 0;
