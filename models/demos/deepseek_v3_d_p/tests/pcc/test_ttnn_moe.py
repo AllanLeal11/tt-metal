@@ -102,6 +102,11 @@ from tests.ttnn.utils_for_testing import comp_pcc
     ],
     indirect=["mesh_device", "device_params"],
 )
+@pytest.mark.parametrize(
+    "input_layout",
+    [ttnn.TILE_LAYOUT, ttnn.ROW_MAJOR_LAYOUT],
+    ids=["tile", "row_major"],
+)
 def test_ttnn_moe(
     mesh_device,
     device_params,
@@ -115,6 +120,7 @@ def test_ttnn_moe(
     num_links,
     topology,
     gate_fallback_mode,
+    input_layout,
 ):
     """
     Test TtMoe PCC against TorchMoe reference.
@@ -192,7 +198,7 @@ def test_ttnn_moe(
     tt_x = ttnn.from_torch(
         x,
         mesh_mapper=ttnn.ShardTensor2dMesh(mesh_device, mesh_shape=mesh_device.shape, dims=(0, -1)),
-        layout=ttnn.ROW_MAJOR_LAYOUT,
+        layout=input_layout,
         device=mesh_device,
         dtype=ttnn.bfloat16,
     )
