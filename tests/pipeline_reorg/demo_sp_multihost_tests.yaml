@@ -58,3 +58,25 @@
   owner_id: U08E1JCMAJF
   team: scaleout
   sp_config: sp1
+
+- name: "Attention Block Unit Test (DeepSeek V3 B1)"
+  cmd: |
+    PRIMARY_HOST=$(awk 'NF {print $1; exit}' /ci/ttrun/hostfile)
+    mpirun --host "$PRIMARY_HOST" --tag-output -np 1 \
+      -x ARCH_NAME=blackhole \
+      -x LD_LIBRARY_PATH=/home/user/tt-metal/build/lib \
+      -x PYTHONPATH=/home/user/tt-metal \
+      -x TT_METAL_HOME=/home/user/tt-metal \
+      -x TT_METAL_RUNTIME_ROOT=/home/user/tt-metal \
+      -x TT_METAL_CACHE=/home/user/.cache \
+      bash -lc '
+        cd /home/user/tt-metal &&
+        python -m pytest -svvv --timeout 600 -m "not skip_post_commit" \
+          models/demos/deepseek_v3_b1/tests/unit_tests/test_attention_block.py::test_attention_block
+      '
+  skus:
+    bh_sp1:
+      timeout: 30
+  owner_id: U08E1JCMAJF
+  team: scaleout
+  sp_config: sp1
