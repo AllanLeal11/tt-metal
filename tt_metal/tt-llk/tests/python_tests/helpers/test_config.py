@@ -1282,7 +1282,7 @@ class TestConfig:
                 commit_brisc_command(TestConfig.TENSIX_LOCATION, BriscCmd.START_TRISCS)
             case BootMode.TRISC:
                 reset_mailboxes(TestConfig.TENSIX_LOCATION)
-                set_tensix_soft_reset(0, [RiscCore.TRISC0], TestConfig.TENSIX_LOCATION)
+                set_tensix_soft_reset(0, TRISC_CORES, TestConfig.TENSIX_LOCATION)
             case BootMode.EXALENS:
                 exalens_device_setup(TestConfig.CHIP_ARCH, TestConfig.TENSIX_LOCATION)
                 set_tensix_soft_reset(0, TRISC_CORES, TestConfig.TENSIX_LOCATION)

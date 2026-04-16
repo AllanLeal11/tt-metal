@@ -3,6 +3,7 @@
 
 import atexit
 import datetime
+import glob as _glob
 import json
 import logging
 import os
@@ -10,6 +11,19 @@ import signal
 from dataclasses import asdict
 from pathlib import Path
 from typing import Optional
+
+# Early ttsim initialization: must happen before helpers.device import
+# (which triggers check_context -> init_ttexalens at module load time)
+_ttsim_sim_path = os.environ.get("TT_UMD_SIMULATOR_PATH", "")
+if _ttsim_sim_path and (".so" in _ttsim_sim_path or os.path.isdir(_ttsim_sim_path)):
+    _sim_so = _ttsim_sim_path if _ttsim_sim_path.endswith(".so") else None
+    if not _sim_so and os.path.isdir(_ttsim_sim_path):
+        _so_files = _glob.glob(os.path.join(_ttsim_sim_path, "*.so"))
+        _sim_so = _so_files[0] if _so_files else None
+    if _sim_so:
+        from ttexalens import tt_exalens_init
+
+        tt_exalens_init.init_ttexalens(simulation_directory=_sim_so, use_4B_mode=False)
 
 import helpers.order_processing as order_processing
 import helpers.utils as utils_module
@@ -287,7 +301,10 @@ def pytest_configure(config):
 
             # Only the controller process manages the server; xdist workers
             # just connect to the already-running instance.
-            if not hasattr(config, "workerinput"):
+            if simulator_path.endswith(".so"):
+                # ttsim .so: already initialized early (above). Skip ExalensServer.
+                pass
+            elif not hasattr(config, "workerinput"):
                 global _exalens_server
                 _exalens_server = ExalensServer(
                     simulator_path=simulator_path,
