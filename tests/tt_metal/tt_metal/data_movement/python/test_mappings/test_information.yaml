@@ -811,3 +811,7 @@ tests:
   817:
     name: "Noc Estimator - DRAM Interleaved All to All"
     bandwidth_mode: "combined"
+
+  1026:
+    name: "Matmul - 4x4 K=4 Subblock K Sweep"
+    bandwidth_mode: "combined"
