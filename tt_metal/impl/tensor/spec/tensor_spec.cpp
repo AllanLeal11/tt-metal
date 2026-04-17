@@ -199,8 +199,15 @@ TensorSpec TensorSpec::block_sharded(CoreRange grid, ShardOrientation orientatio
         div_up(physical_shape().height(), orientation == ShardOrientation::ROW_MAJOR ? grid_size.y : grid_size.x);
     auto shard_width =
         div_up(physical_shape().width(), orientation == ShardOrientation::ROW_MAJOR ? grid_size.x : grid_size.y);
-    NdShardSpec shard_spec(
-        Shape({static_cast<uint32_t>(shard_height), static_cast<uint32_t>(shard_width)}), grid, orientation);
+    // GRID_2D required for populate_legacy_shard_spec_from_nd to return a valid ShardSpec.
+    // ROUND_ROBIN_1D returns nullopt when num_shards_along_width != grid.x,
+    // causing bad_optional_access in callers that unconditionally dereference shard_spec().
+    NdShardSpec shard_spec{
+        Shape({static_cast<uint32_t>(shard_height), static_cast<uint32_t>(shard_width)}),
+        CoreRangeSet{grid},
+        orientation,
+        ShardDistributionStrategy::GRID_2D,
+    };
     return sharded(std::move(shard_spec), ShardShapeAlignment::RECOMMENDED);
 }
 
