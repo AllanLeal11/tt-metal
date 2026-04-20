@@ -9,6 +9,8 @@
 
 #include "noc_parameters.h"
 
+namespace experimental {
+
 /*
   DRISC NIU Mode Configuration (Blackhole)
 
@@ -94,3 +96,5 @@ inline __attribute__((always_inline)) void drisc_set_noc2axi_mode_all(void) {
 }
 
 #endif  // COMPILE_FOR_DRISC
+
+}  // namespace experimental
