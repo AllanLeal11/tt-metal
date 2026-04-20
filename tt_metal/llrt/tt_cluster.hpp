@@ -220,7 +220,7 @@ public:
         const void* vec, uint32_t size_in_bytes, uint64_t addr, ChipId src_device_id, uint16_t channel) const;
     void read_sysmem(void* vec, uint32_t size_in_bytes, uint64_t addr, ChipId src_device_id, uint16_t channel) const;
 
-    void advance_sim_clock(ChipId device_id, uint32_t n_clocks) const;
+    void yield(ChipId device_id, uint32_t n_clocks) const;
 
     // System memory buffer allocation methods
     std::unique_ptr<tt::umd::SysmemBuffer> allocate_sysmem_buffer(
