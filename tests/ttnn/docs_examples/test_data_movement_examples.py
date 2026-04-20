@@ -2,6 +2,7 @@
 
 # SPDX-License-Identifier: Apache-2.0
 
+import pytest
 import ttnn
 import torch
 from loguru import logger
@@ -230,6 +231,116 @@ def test_indexed_fill(device):
     # Perform indexed fill
     output_tensor = ttnn.indexed_fill(batch_id_ttnn, input_tensor_a, input_tensor_b)
     logger.info("Indexed Fill Output Tensor Shape:", output_tensor.shape)
+
+
+def test_indexed_fill_tile_layout(device):
+    # Define shapes for input tensors. With TILE layout the H*N rows and the
+    # last dim must be tile-aligned (multiples of 32).
+    input_a_shape = (32, 1, 32, 32)
+    input_b_shape = (6, 1, 32, 32)
+
+    batch_id = torch.randint(0, (32 - 1), (1, 1, 1, 6))
+    batch_id_ttnn = ttnn.Tensor(batch_id, ttnn.uint32).to(
+        device, ttnn.MemoryConfig(ttnn.TensorMemoryLayout.INTERLEAVED, ttnn.BufferType.L1)
+    )
+
+    # Both data inputs are in TILE layout.
+    input_tensor_a = ttnn.rand(input_a_shape, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device)
+    input_tensor_b = ttnn.rand(input_b_shape, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device)
+
+    # Perform indexed fill - output preserves TILE layout.
+    output_tensor = ttnn.indexed_fill(batch_id_ttnn, input_tensor_a, input_tensor_b)
+    logger.info("Indexed Fill (TILE) Output Tensor Shape:", output_tensor.shape)
+    logger.info("Indexed Fill (TILE) Output Tensor Layout:", output_tensor.layout)
+
+
+def test_indexed_fill_sharded(device):
+    # HEIGHT_SHARDED L1 example using the native CB-aliased fast path: input_a and the
+    # output share the same shard geometry (one batch slab per core) so the kernel writes
+    # the result directly into the output's per-core L1 shard with zero copy.
+    B, b, D = 8, 3, 64
+    input_a_shape = (B, 1, 1, D)
+    input_b_shape = (b, 1, 1, D)
+
+    # Batch-id tensor (must remain ROW_MAJOR, interleaved L1).
+    batch_id = torch.randint(0, B, (1, 1, 1, b))
+    batch_id_ttnn = ttnn.Tensor(batch_id, ttnn.uint32).to(
+        device, ttnn.MemoryConfig(ttnn.TensorMemoryLayout.INTERLEAVED, ttnn.BufferType.L1)
+    )
+
+    # HEIGHT_SHARDED L1 memory config: B cores in a 1xB grid, one (1, D) shard per core.
+    sharded_mem_config = ttnn.create_sharded_memory_config(
+        shape=(B, 1, 1, D),
+        core_grid=ttnn.CoreGrid(y=1, x=B),
+        strategy=ttnn.ShardStrategy.HEIGHT,
+    )
+    interleaved_l1 = ttnn.MemoryConfig(ttnn.TensorMemoryLayout.INTERLEAVED, ttnn.BufferType.L1)
+
+    # Build input_a sharded; input_b stays interleaved (its buffer type is unrestricted).
+    torch_a = torch.rand(input_a_shape, dtype=torch.bfloat16)
+    torch_b = torch.rand(input_b_shape, dtype=torch.bfloat16)
+    input_tensor_a = ttnn.from_torch(
+        torch_a, dtype=ttnn.bfloat16, device=device, layout=ttnn.ROW_MAJOR_LAYOUT, memory_config=sharded_mem_config
+    )
+    input_tensor_b = ttnn.from_torch(
+        torch_b, dtype=ttnn.bfloat16, device=device, layout=ttnn.ROW_MAJOR_LAYOUT, memory_config=interleaved_l1
+    )
+
+    # Request a sharded output with the same geometry to enable the native fast path.
+    output_tensor = ttnn.indexed_fill(batch_id_ttnn, input_tensor_a, input_tensor_b, memory_config=sharded_mem_config)
+    logger.info("Indexed Fill (sharded) Output Tensor Shape:", output_tensor.shape)
+    logger.info("Indexed Fill (sharded) Output Memory Layout:", output_tensor.memory_config().memory_layout)
+
+
+@pytest.mark.parametrize(
+    "shape_a, b, dim",
+    [
+        # Replace whole batches along dim=0 (the default).
+        ((8, 1, 32, 32), 3, 0),
+        # Replace 2 channel slices (dim=1).
+        ((4, 6, 32, 32), 2, 1),
+        # Replace 4 height slices (dim=2).
+        ((4, 3, 8, 32), 4, 2),
+        # Replace 8 columns (dim=3).
+        ((2, 3, 4, 64), 8, 3),
+        # Negative dim: -1 == rank-1 == 3.
+        ((4, 3, 8, 32), 5, -1),
+        # Negative dim: -2 == rank-2 == 2.
+        ((4, 3, 8, 32), 3, -2),
+    ],
+    ids=["dim=0", "dim=1", "dim=2", "dim=3", "dim=-1", "dim=-2"],
+)
+@pytest.mark.parametrize(
+    "layout",
+    [ttnn.ROW_MAJOR_LAYOUT, ttnn.TILE_LAYOUT],
+    ids=["row_major", "tile"],
+)
+def test_indexed_fill_dim(device, shape_a, b, dim, layout):
+    # input_b has the same shape as input_a except along `dim`, where its size
+    # equals the number of indices (b).
+    shape_b = list(shape_a)
+    shape_b[dim] = b
+
+    # batch_id selects which slices along `dim` of input_a get overwritten.
+    batch_id = torch.randint(0, shape_a[dim], (1, 1, 1, b))
+    batch_id_ttnn = ttnn.Tensor(batch_id, ttnn.uint32).to(
+        device, ttnn.MemoryConfig(ttnn.TensorMemoryLayout.INTERLEAVED, ttnn.BufferType.L1)
+    )
+
+    input_tensor_a = ttnn.rand(shape_a, dtype=ttnn.bfloat16, layout=layout, device=device)
+    input_tensor_b = ttnn.rand(tuple(shape_b), dtype=ttnn.bfloat16, layout=layout, device=device)
+
+    # Indexed fill along the requested dim.
+    output_tensor = ttnn.indexed_fill(batch_id_ttnn, input_tensor_a, input_tensor_b, dim=dim)
+
+    # Output preserves input_a's shape and layout.
+    assert tuple(output_tensor.shape) == shape_a
+    assert output_tensor.layout == layout
+
+    logger.info(
+        f"Indexed Fill (dim={dim}, layout={layout}) Output Shape: {output_tensor.shape}, "
+        f"Layout: {output_tensor.layout}"
+    )
 
 
 def test_gather(device):
