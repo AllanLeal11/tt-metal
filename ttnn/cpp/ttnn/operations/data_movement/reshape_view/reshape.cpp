@@ -285,11 +285,16 @@ ttnn::Tensor reshape_tiled(
     auto updated_mem_config = memory_config;
     if (updated_mem_config.memory_layout() == TensorMemoryLayout::HEIGHT_SHARDED) {
         auto shard_spec = updated_mem_config.shard_spec().value();
-        shard_spec.shape[1] = requested_shape_3d[-1];
+        shard_spec.shape[1] = requested_padded_shape_3d[-1];
         updated_mem_config = updated_mem_config.with_shard_spec(shard_spec);
     } else if (updated_mem_config.memory_layout() == TensorMemoryLayout::WIDTH_SHARDED) {
         auto shard_spec = updated_mem_config.shard_spec().value();
-        shard_spec.shape[0] = requested_shape_3d[-2];
+        shard_spec.shape[0] = requested_padded_shape_3d[-2];
+        updated_mem_config = updated_mem_config.with_shard_spec(shard_spec);
+    } else if (updated_mem_config.memory_layout() == TensorMemoryLayout::BLOCK_SHARDED) {
+        auto shard_spec = updated_mem_config.shard_spec().value();
+        shard_spec.shape[0] = requested_padded_shape_3d[-2];
+        shard_spec.shape[1] = requested_padded_shape_3d[-1];
         updated_mem_config = updated_mem_config.with_shard_spec(shard_spec);
     }
 
