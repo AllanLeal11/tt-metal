@@ -27,10 +27,19 @@ void kernel_main() {
     const uint32_t tile_bytes = get_tile_size(cb_id_in0);
 
     constexpr uint32_t cb_id_in2 = tt::CBIndex::c_2;
+#ifdef REDUCE_MINMAX_TWO_TILE_SCALER
+    // Compile-time arg indices 4,5: packed BF16 unity tile, then packed user scale
+    constexpr uint32_t packed_reduce_unity = get_compile_time_arg_val(4);
+    constexpr uint32_t packed_post_scale = get_compile_time_arg_val(5);
+    generate_reduce_scaler(cb_id_in2, packed_reduce_unity);  // tile 0 on c_2: 1.0 for reduce_tile(..., itile_scaler=0)
+    generate_reduce_scaler(cb_id_in2, packed_post_scale);    // tile 1 on c_2: user scalar for compute post-mul
+    constexpr auto tensor_args = TensorAccessorArgs<6>();
+#else
     constexpr uint32_t scalar = get_compile_time_arg_val(4);
     generate_reduce_scaler(cb_id_in2, scalar);
 
     constexpr auto tensor_args = TensorAccessorArgs<5>();
+#endif
     auto tensor_accessor = TensorAccessor(tensor_args, src_addr);
 
     experimental::Noc noc;

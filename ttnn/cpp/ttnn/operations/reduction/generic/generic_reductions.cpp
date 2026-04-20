@@ -651,6 +651,17 @@ Tensor max(
     float scalar,
     bool correction,
     const std::optional<CoreRangeSet>& sub_core_grids) {
+    if (scalar < 0.0f) {
+        return operations::reduction::reduce<reduction_common::ReduceType::Min>(
+            input_tensor_arg,
+            dim_arg,
+            keepdim,
+            memory_config_arg,
+            compute_kernel_config,
+            scalar,
+            correction,
+            sub_core_grids);
+    }
     return operations::reduction::reduce<reduction_common::ReduceType::Max>(
         input_tensor_arg,
         dim_arg,
@@ -671,6 +682,17 @@ Tensor min(
     float scalar,
     bool correction,
     const std::optional<CoreRangeSet>& sub_core_grids) {
+    if (scalar < 0.0f) {
+        return operations::reduction::reduce<reduction_common::ReduceType::Max>(
+            input_tensor_arg,
+            dim_arg,
+            keepdim,
+            memory_config_arg,
+            compute_kernel_config,
+            scalar,
+            correction,
+            sub_core_grids);
+    }
     return operations::reduction::reduce<reduction_common::ReduceType::Min>(
         input_tensor_arg,
         dim_arg,

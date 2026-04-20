@@ -900,3 +900,24 @@ def test_torch_compatibility(device, tensor_shape, keepdim, dim, op, use_legacy)
         assert torch.allclose(
             torch_result, ttnn_result, atol=atol, rtol=rtol, equal_nan=True
         ), f"torch: {torch_result}, ttnn: {ttnn_result}"
+
+
+@pytest.mark.use_module_device
+@pytest.mark.parametrize("op", ["max", "min"])
+@pytest.mark.parametrize("dim", [-2])
+@pytest.mark.parametrize("scalar", [2, -2, 2.43, -2.43])
+def test_min_max_scalar(device, op, dim, scalar):
+    torch.manual_seed(42)
+    shape = (1, 1, 64, 32)
+    torch_input = torch.randn(shape, dtype=torch.bfloat16)
+
+    torch_op = getattr(torch, f"a{op}")
+    torch_result = torch_op(scalar * torch_input, dim=dim, keepdim=True)
+
+    ttnn_input = ttnn.from_torch(torch_input, layout=ttnn.TILE_LAYOUT, device=device)
+    ttnn_result = ttnn.to_torch(getattr(ttnn, op)(ttnn_input, dim=dim, scalar=scalar, keepdim=True))
+
+    atol = rtol = 0.1
+    pcc = 0.999
+    passing, output_pcc = comp_allclose_and_pcc(torch_result, ttnn_result, pcc=pcc, rtol=rtol, atol=atol)
+    assert passing, f"{output_pcc}, torch: {torch_result}, ttnn: {ttnn_result}"

@@ -7,6 +7,11 @@
 #include "api/compute/reduce.h"
 #include "experimental/circular_buffer.h"
 
+#ifdef REDUCE_MINMAX_TWO_TILE_SCALER
+#include "api/compute/eltwise_binary_sfpu.h"
+#include "api/compute/tile_move_copy.h"
+#endif
+
 void kernel_main() {
     uint32_t Ht = get_compile_time_arg_val(0);
     uint32_t Wt = get_compile_time_arg_val(1);
@@ -20,7 +25,12 @@ void kernel_main() {
     compute_kernel_hw_startup(tt::CBIndex::c_0, tt::CBIndex::c_2, tt::CBIndex::c_3);
     reduce_init(tt::CBIndex::c_0, tt::CBIndex::c_2, tt::CBIndex::c_3);
 
+#ifdef REDUCE_MINMAX_TWO_TILE_SCALER
+    // Reader pushed two tiles to c_2 (unity, then user scale); both must be visible before reduce or post-mul.
+    cb2.wait_front(2);
+#else
     cb2.wait_front(1);  // scaler tile from the reader
+#endif
 
     constexpr int onetile = 1;
 
@@ -50,6 +60,16 @@ void kernel_main() {
                     ++reduce_dst_idx;
                 }
             }
+
+#ifdef REDUCE_MINMAX_TWO_TILE_SCALER
+            uint32_t ntiles = chunk_end - wt;
+            copy_tile_init(tt::CBIndex::c_2);
+            copy_tile(tt::CBIndex::c_2, 1, ntiles);  // tile 0 unity (reduce_tile), tile 1 user scale (post-mul)
+            mul_binary_tile_init();
+            for (uint32_t i = 0; i < ntiles; ++i) {
+                mul_binary_tile(i, ntiles, i);
+            }
+#endif
             for (uint32_t i = wt; i < chunk_end; ++i) {
                 cb3.reserve_back(onetile);
                 pack_tile((i - wt), tt::CBIndex::c_3);
