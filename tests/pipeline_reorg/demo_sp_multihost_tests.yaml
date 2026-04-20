@@ -61,9 +61,7 @@
 
 - name: "Attention Block Unit Test (DeepSeek V3 B1)"
   cmd: |
-    cat /ci/ttrun/hostfile
     PRIMARY_HOST=$(awk 'NF {print $1; exit}' /ci/ttrun/hostfile)
-    echo "PRIMARY_HOST: $PRIMARY_HOST"
     mpirun --host "$PRIMARY_HOST" --tag-output -np 1 \
       -x ARCH_NAME=blackhole \
       -x LD_LIBRARY_PATH=/home/user/tt-metal/build/lib \
