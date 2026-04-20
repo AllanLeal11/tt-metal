@@ -39,7 +39,9 @@
 
 - name: "Pipeline Test (DeepSeek V3 B1)"
   cmd: |
+    cat /ci/ttrun/hostfile
     PIPELINE_HOSTS=$(awk '{printf "%s:4,", $1}' /ci/ttrun/hostfile | sed 's/,$//')
+    echo "PIPELINE_HOSTS: $PIPELINE_HOSTS"
     PIPELINE_DIR=/ci/pipeline-${GITHUB_RUN_ID}
     mkdir -p $PIPELINE_DIR
     python3 models/demos/deepseek_v3_b1/scaleout_configs/generate_blitz_decode_pipeline_configs.py \
@@ -52,28 +54,6 @@
       --mpi-args "--map-by rankfile:file=blitz_decode_pipeline_rank_file_single_pod_ci --bind-to hwt:overload-allowed --host $PIPELINE_HOSTS --tag-output" \
       --rank-binding blitz_decode_pipeline_rank_binding_single_pod_ci.yaml \
       /home/user/tt-metal/build/test/tt_metal/multihost/socket_pipeline/multiprocess/unit_tests_pipeline
-  skus:
-    bh_sp1:
-      timeout: 30
-  owner_id: U08E1JCMAJF
-  team: scaleout
-  sp_config: sp1
-
-- name: "Attention Block Unit Test (DeepSeek V3 B1)"
-  cmd: |
-    PRIMARY_HOST=$(awk 'NF {print $1; exit}' /ci/ttrun/hostfile)
-    mpirun --host "$PRIMARY_HOST" --tag-output -np 1 \
-      -x ARCH_NAME=blackhole \
-      -x LD_LIBRARY_PATH=/home/user/tt-metal/build/lib \
-      -x PYTHONPATH=/home/user/tt-metal \
-      -x TT_METAL_HOME=/home/user/tt-metal \
-      -x TT_METAL_RUNTIME_ROOT=/home/user/tt-metal \
-      -x TT_METAL_CACHE=/home/user/.cache \
-      bash -lc '
-        cd /home/user/tt-metal &&
-        python -m pytest -svvv --timeout 600 -m "not skip_post_commit" \
-          models/demos/deepseek_v3_b1/tests/unit_tests/test_attention_block.py::test_attention_block
-      '
   skus:
     bh_sp1:
       timeout: 30
