@@ -9,6 +9,13 @@ wormhole_b0:
   - tests/ttnn/unit_tests/base_functionality/test_graph_report.py::test_resnet50_e2e_graph_capture
   - tests/ttnn/unit_tests/operations/conv/test_conv2d.py
   - tests/ttnn/unit_tests/operations/conv/test_conv3d.py
+  - tests/ttnn/unit_tests/operations/data_movement/test_concat.py
+  - tests/ttnn/unit_tests/operations/data_movement/test_concat_iterative.py
+  - tests/ttnn/unit_tests/operations/data_movement/test_gather.py
+  - tests/ttnn/unit_tests/operations/data_movement/test_pad.py
+  - tests/ttnn/unit_tests/operations/data_movement/test_permute.py
+  - tests/ttnn/unit_tests/operations/data_movement/test_slice_write.py
+  - tests/ttnn/unit_tests/operations/data_movement/test_sort.py
   - tests/ttnn/unit_tests/operations/matmul/test_matmul.py
   - tests/ttnn/unit_tests/operations/pool/test_maxpool2d.py
   - tests/ttnn/unit_tests/operations/pool/test_mpwi.py
@@ -46,6 +53,13 @@ blackhole:
   - tests/ttnn/unit_tests/operations/conv/test_conv3d.py
   - tests/ttnn/unit_tests/operations/conv/test_conv_transpose2d.py
   - tests/ttnn/unit_tests/operations/conv/test_prepare_conv_weights.py
+  - tests/ttnn/unit_tests/operations/data_movement/test_concat.py
+  - tests/ttnn/unit_tests/operations/data_movement/test_concat_iterative.py
+  - tests/ttnn/unit_tests/operations/data_movement/test_gather.py
+  - tests/ttnn/unit_tests/operations/data_movement/test_pad.py
+  - tests/ttnn/unit_tests/operations/data_movement/test_permute.py
+  - tests/ttnn/unit_tests/operations/data_movement/test_slice_write.py
+  - tests/ttnn/unit_tests/operations/data_movement/test_sort.py
   - tests/ttnn/unit_tests/operations/matmul/test_matmul.py
   - tests/ttnn/unit_tests/operations/pool/test_maxpool2d.py
   - tests/ttnn/unit_tests/operations/pool/test_mpwi.py
