@@ -140,9 +140,19 @@ template <typename CTArgs>
 class WriterSingleLink {
 public:
     void operator()(const SenderArgs& args) { impl(args); }
+    void open_connections(const SenderArgs& args, bool reset_header_pool = true) {
+        open_connections_impl(args, reset_header_pool);
+    }
 
 private:
-    void impl([[maybe_unused]] const SenderArgs& args) {
+#if defined(COMPILE_FOR_NCRISC) || defined(COMPILE_FOR_BRISC)
+    uint64_t dst_noc_base;
+    uint64_t remote_sem_noc;
+    uint64_t local_ready_noc_addr;
+    volatile tt_l1_ptr PACKET_HEADER_TYPE* header;
+    tt::tt_fabric::WorkerToFabricEdmSender connection;
+#endif
+    void open_connections_impl([[maybe_unused]] const SenderArgs& args, [[maybe_unused]] bool reset_header_pool) {
 #if defined(COMPILE_FOR_NCRISC) || defined(COMPILE_FOR_BRISC)
         if constexpr (CTArgs::link_index >= CTArgs::num_links) {
             return;
@@ -153,7 +163,6 @@ private:
         const uint32_t dst_chip_id = get_arg_val<uint32_t>(arg_idx++);
         const uint32_t link_sem_bank_addr = get_arg_val<uint32_t>(arg_idx++);
 
-        uint64_t local_ready_noc_addr = 0;
         if constexpr (CTArgs::signal_local_ready) {
             const uint32_t local_ready_dest_noc_x = get_arg_val<uint32_t>(arg_idx++);
             const uint32_t local_ready_dest_noc_y = get_arg_val<uint32_t>(arg_idx++);
@@ -162,17 +171,25 @@ private:
                 safe_get_noc_addr(local_ready_dest_noc_x, local_ready_dest_noc_y, local_ready_sem_bank, 0);
         }
 
-        auto connection =
-            tt::tt_fabric::WorkerToFabricEdmSender::build_from_args<ProgrammableCoreType::TENSIX>(arg_idx);
+        connection = tt::tt_fabric::WorkerToFabricEdmSender::build_from_args<ProgrammableCoreType::TENSIX>(arg_idx);
         connection.open_start();
-
-        PacketHeaderPool::reset();
-        volatile tt_l1_ptr PACKET_HEADER_TYPE* header = PacketHeaderPool::allocate_header();
+        if (reset_header_pool) {
+            PacketHeaderPool::reset();
+        }
+        header = PacketHeaderPool::allocate_header();
         fabric_set_unicast_route(header, dst_chip_id, dst_mesh_id);
 
-        const uint64_t dst_noc_base =
-            safe_get_noc_addr(args.dest_noc_x, args.dest_noc_y, args.intermediate_buffer_address, 0);
-        const uint64_t remote_sem_noc = safe_get_noc_addr(args.dest_noc_x, args.dest_noc_y, link_sem_bank_addr, 0);
+        dst_noc_base = safe_get_noc_addr(args.dest_noc_x, args.dest_noc_y, args.intermediate_buffer_address, 0);
+        remote_sem_noc = safe_get_noc_addr(args.dest_noc_x, args.dest_noc_y, link_sem_bank_addr, 0);
+
+        connection.open_finish();
+#endif
+    }
+    void impl([[maybe_unused]] const SenderArgs& args) {
+#if defined(COMPILE_FOR_NCRISC) || defined(COMPILE_FOR_BRISC)
+        if constexpr (CTArgs::link_index >= CTArgs::num_links) {
+            return;
+        }
 
         // Ensure local data is available in the CB before signaling or sending.
         if constexpr (CTArgs::skip_local_push) {
@@ -190,12 +207,9 @@ private:
         // can safely NOC-read from the sender's L1.
         if constexpr (CTArgs::signal_local_ready) {
             noc_semaphore_inc(local_ready_noc_addr, 1);
-            noc_async_atomic_barrier();
         }
 
         const uint32_t src_base_addr = get_read_ptr(CTArgs::local_data_cb_id);
-
-        connection.open_finish();
 
         constexpr uint32_t stride_bytes = CTArgs::num_links * CTArgs::tiles_per_chunk * CTArgs::page_size_bytes;
         uint32_t offset = CTArgs::link_index * CTArgs::tiles_per_chunk * CTArgs::page_size_bytes;

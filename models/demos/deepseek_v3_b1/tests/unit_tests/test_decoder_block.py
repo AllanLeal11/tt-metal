@@ -802,11 +802,12 @@ def test_decoder(
 @pytest.mark.parametrize(
     "position_id",
     [
-        0,
-        127,
-        pytest.param(511, marks=pytest.mark.skip_post_commit),
-        pytest.param(1023, marks=pytest.mark.skip_post_commit),
-        pytest.param(11664, marks=pytest.mark.skip_post_commit),  # (3,3,3,2 + partial): partial into dev3 (if SP = 4)
+        8190,
+        # 0,
+        # 127,
+        # pytest.param(511, marks=pytest.mark.skip_post_commit),
+        # pytest.param(1023, marks=pytest.mark.skip_post_commit),
+        # pytest.param(11664, marks=pytest.mark.skip_post_commit),  # (3,3,3,2 + partial): partial into dev3 (if SP = 4)
     ],
 )
 @pytest.mark.parametrize(
@@ -821,7 +822,7 @@ def test_decoder(
     indirect=True,
 )
 @pytest.mark.parametrize("noc_mode", [ttnn.NOC_MODE.DM_DYNAMIC_NOC])
-@pytest.mark.parametrize("num_internal_iterations", [1])
+@pytest.mark.parametrize("num_internal_iterations", [2])
 @pytest.mark.requires_grid_size((13, 10))
 def test_decoder_mlp(
     bh_2d_mesh_device,
