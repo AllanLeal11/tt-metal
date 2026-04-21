@@ -300,13 +300,13 @@ struct DRAMStreamingMatmul {
                         }
                         // Final subblock: finalize=true
                         cb_wait_front(CTArgs::cb_in1, CTArgs::subblock_k);
-                        // custom_mm_block<true>(
-                        //     CTArgs::cb_in0,
-                        //     CTArgs::cb_in1,
-                        //     (CTArgs::num_subblocks_k - 1) * CTArgs::subblock_k,
-                        //     0,
-                        //     0,
-                        //     CTArgs::subblock_k);
+                        custom_mm_block<true>(
+                            CTArgs::cb_in0,
+                            CTArgs::cb_in1,
+                            (CTArgs::num_subblocks_k - 1) * CTArgs::subblock_k,
+                            0,
+                            0,
+                            CTArgs::subblock_k);
                         cb_pop_front(CTArgs::cb_in1, CTArgs::subblock_k);
 
                         tile_regs_commit();
@@ -345,13 +345,13 @@ struct DRAMStreamingMatmul {
                         }
                         // Final subblock: finalize=true
                         cb_wait_front(CTArgs::cb_in1, CTArgs::subblock_k);
-                        // custom_mm_block<true>(
-                        //     CTArgs::cb_in0,
-                        //     CTArgs::cb_in1,
-                        //     (CTArgs::num_subblocks_k - 1) * CTArgs::subblock_k,
-                        //     0,
-                        //     w,
-                        //     CTArgs::subblock_k);
+                        custom_mm_block<true>(
+                            CTArgs::cb_in0,
+                            CTArgs::cb_in1,
+                            (CTArgs::num_subblocks_k - 1) * CTArgs::subblock_k,
+                            0,
+                            w,
+                            CTArgs::subblock_k);
                         cb_pop_front(CTArgs::cb_in1, CTArgs::subblock_k);
                     }
 
