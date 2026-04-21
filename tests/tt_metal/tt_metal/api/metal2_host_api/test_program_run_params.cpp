@@ -537,6 +537,121 @@ TEST_F(ProgramRunParamsTestQuasar, MultiNode_MissingOneNodeFails) {
 // still fires when it should.
 
 // Test fixture for ProgramRunParams on Wormhole - uses WORMHOLE_B0 mock device
+// ============================================================================
+// SECTION 4: Named RTA / CRTA Tests (Quasar)
+// ============================================================================
+
+// Make a ProgramSpec where the DM kernel has a named-RTA / named-CRTA schema.
+inline ProgramSpec MakeSpecWithNamedArgs(
+    const NodeCoord& node, const std::vector<std::string>& named_rtas, const std::vector<std::string>& named_crtas) {
+    ProgramSpec spec = MakeMinimalValidProgramSpec();
+    spec.kernels[0].runtime_arguments_schema.named_runtime_args = named_rtas;
+    spec.kernels[0].runtime_arguments_schema.named_common_runtime_args = named_crtas;
+    (void)node;  // node inherited from MakeMinimalValidProgramSpec (0,0)
+    return spec;
+}
+
+TEST_F(ProgramRunParamsTestQuasar, NamedRTAsAndCRTAsSucceed) {
+    NodeCoord node{0, 0};
+    ProgramSpec spec = MakeSpecWithNamedArgs(node, {"input_ptr", "output_ptr"}, {"tile_count"});
+    Program program = MakeProgramFromSpec(spec);
+
+    ProgramRunParams params;
+    params.kernel_run_params.push_back({
+        .kernel_spec_name = "dm_kernel",
+        .named_runtime_args = {{.node = node, .args = {{"input_ptr", 0x1000}, {"output_ptr", 0x2000}}}},
+        .named_common_runtime_args = {{"tile_count", 64}},
+    });
+    params.kernel_run_params.push_back(MakeKernelRunParams("compute_kernel", node, {}, {}));
+
+    EXPECT_NO_THROW(SetProgramRunParameters(program, params));
+}
+
+TEST_F(ProgramRunParamsTestQuasar, MissingNamedRTAForNodeFails) {
+    NodeCoord node{0, 0};
+    ProgramSpec spec = MakeSpecWithNamedArgs(node, {"input_ptr"}, {});
+    Program program = MakeProgramFromSpec(spec);
+
+    ProgramRunParams params;
+    params.kernel_run_params.push_back({
+        .kernel_spec_name = "dm_kernel",
+        // No named_runtime_args for node (0,0) at all — but schema declares one.
+    });
+    params.kernel_run_params.push_back(MakeKernelRunParams("compute_kernel", node, {}, {}));
+
+    EXPECT_ANY_THROW(SetProgramRunParameters(program, params));
+}
+
+TEST_F(ProgramRunParamsTestQuasar, MissingDeclaredNamedRTANameFails) {
+    NodeCoord node{0, 0};
+    ProgramSpec spec = MakeSpecWithNamedArgs(node, {"input_ptr", "output_ptr"}, {});
+    Program program = MakeProgramFromSpec(spec);
+
+    ProgramRunParams params;
+    params.kernel_run_params.push_back({
+        .kernel_spec_name = "dm_kernel",
+        // Only one name provided — output_ptr missing.
+        .named_runtime_args = {{.node = node, .args = {{"input_ptr", 0x1000}}}},
+    });
+    params.kernel_run_params.push_back(MakeKernelRunParams("compute_kernel", node, {}, {}));
+
+    EXPECT_ANY_THROW(SetProgramRunParameters(program, params));
+}
+
+TEST_F(ProgramRunParamsTestQuasar, UndeclaredNamedRTAFails) {
+    NodeCoord node{0, 0};
+    ProgramSpec spec = MakeSpecWithNamedArgs(node, {"input_ptr"}, {});
+    Program program = MakeProgramFromSpec(spec);
+
+    ProgramRunParams params;
+    params.kernel_run_params.push_back({
+        .kernel_spec_name = "dm_kernel",
+        .named_runtime_args = {{.node = node, .args = {{"input_ptr", 0x1000}, {"not_in_schema", 0}}}},
+    });
+    params.kernel_run_params.push_back(MakeKernelRunParams("compute_kernel", node, {}, {}));
+
+    EXPECT_ANY_THROW(SetProgramRunParameters(program, params));
+}
+
+TEST_F(ProgramRunParamsTestQuasar, NamedCRTACountMismatchFails) {
+    NodeCoord node{0, 0};
+    ProgramSpec spec = MakeSpecWithNamedArgs(node, {}, {"tile_count", "scale"});
+    Program program = MakeProgramFromSpec(spec);
+
+    ProgramRunParams params;
+    params.kernel_run_params.push_back({
+        .kernel_spec_name = "dm_kernel",
+        // Only one CRTA provided; schema declares two.
+        .named_common_runtime_args = {{"tile_count", 4}},
+    });
+    params.kernel_run_params.push_back(MakeKernelRunParams("compute_kernel", node, {}, {}));
+
+    EXPECT_ANY_THROW(SetProgramRunParameters(program, params));
+}
+
+TEST_F(ProgramRunParamsTestQuasar, NamedAndVarargRTAsCoexistSucceeds) {
+    // A kernel with both named RTAs (schema) and varargs (num_runtime_args_per_node).
+    NodeCoord node{0, 0};
+    ProgramSpec spec = MakeMinimalValidProgramSpec();
+    spec.kernels[0].runtime_arguments_schema.named_runtime_args = {"input_ptr"};
+    spec.kernels[0].runtime_arguments_schema.num_runtime_args_per_node = {{node, 3}};
+    Program program = MakeProgramFromSpec(spec);
+
+    ProgramRunParams params;
+    params.kernel_run_params.push_back({
+        .kernel_spec_name = "dm_kernel",
+        .named_runtime_args = {{.node = node, .args = {{"input_ptr", 0x1000}}}},
+        .runtime_args = {{node, {7, 8, 9}}},
+    });
+    params.kernel_run_params.push_back(MakeKernelRunParams("compute_kernel", node, {}, {}));
+
+    EXPECT_NO_THROW(SetProgramRunParameters(program, params));
+}
+
+// ============================================================================
+// SECTION 5: Gen1 (WH/BH) Tests
+// ============================================================================
+
 class ProgramRunParamsTestGen1 : public ::testing::Test {
 protected:
     void SetUp() override { experimental::configure_mock_mode(tt::ARCH::WORMHOLE_B0, 1); }
@@ -587,7 +702,7 @@ TEST_F(ProgramRunParamsTestGen1, WrongRuntimeArgsCountFails) {
     EXPECT_THAT(
         [&] { SetProgramRunParameters(program, params); },
         ::testing::ThrowsMessage<std::runtime_error>(
-            ::testing::HasSubstr("expects 3 runtime args, but 2 were provided")));
+            ::testing::HasSubstr("expects 3 vararg runtime_args, but 2 were provided")));
 }
 
 }  // namespace

@@ -36,6 +36,18 @@ public:
     virtual void process_dataflow_buffer_local_accessor_handles(
         std::function<void(const std::string& accessor_name, uint16_t logical_dfb_id)>) const {}
 
+    // Called to process named RTA/CRTA schema (Metal 2.0 APIs)
+    // The callback is invoked once per name, in declaration order. The order determines the
+    // byte offset of each arg within the named-args section of the dispatch buffer.
+    virtual void process_named_runtime_args(std::function<void(const std::string& name)>) const {}
+    virtual void process_named_common_runtime_args(std::function<void(const std::string& name)>) const {}
+    // User-configurable C++ namespace emitted around named RTA/CRTA/CTA accessors in
+    // kernel_args_generated.h. Defaults to "args" when not overridden.
+    virtual const std::string& get_args_namespace() const {
+        static const std::string k_default = "args";
+        return k_default;
+    }
+
     // Called to process additional include paths (e.g., kernel source directory for relative includes)
     virtual void process_include_paths(const std::function<void(const std::string& path)>&) const {}
 

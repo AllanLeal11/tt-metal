@@ -71,6 +71,14 @@ struct KernelSpec {
     // Kernel identifier: used to reference this kernel within the ProgramSpec
     KernelSpecName unique_id;
 
+    // Namespace for the kernel argument accessors emitted into kernel_args_generated.h.
+    // Each bound RTA/CRTA/CTA becomes `<args_namespace>::<name>` in kernel code.
+    // Override when fusing multiple logical kernels into one source binary, to avoid name collisions:
+    //   KernelSpec{ .args_namespace = "reader_args", ... }
+    //   KernelSpec{ .args_namespace = "writer_args", ... }
+    // The default "args" is the right choice for non-fused kernels.
+    std::string args_namespace = "args";
+
     // Kernel source: either a path to a source file, or the source code itself.
     // (Wrapper types disambiguate the string-constructible variant alternatives,
     // ensuring compile-time enforcement.)
@@ -151,15 +159,28 @@ struct KernelSpec {
 
     // Schema for runtime and common runtime arguments
     // (The VALUES of these arguments are set as ProgramRunParams.)
+    //
+    // Two mechanisms are supported per kernel:
+    //   - Named RTAs/CRTAs: referenced by name in kernel code via `<args_namespace>::<name>`.
+    //     Laid out at the front of the dispatch buffer in schema declaration order.
+    //   - Vararg RTAs/CRTAs: positional, variable-count, always uint32_t.
+    //     Indexed from 0 in kernel code via `get_vararg(idx)` / `get_common_vararg(idx)`.
+    //     The runtime hides the named-args offset, so vararg indices are stable across
+    //     schema changes (e.g., moving a named arg from RTA→CRTA).
+    //
+    // Phase 1: all named args are uint32_t. Phase 2 will add typed args.
     struct RuntimeArgSchema {
-        // Schema for named and typed RTAs + CRTAs
-        // (These must be fully specified in the kernel code.)
-        //   TODO
+        // Named RTAs: names in declaration order. Must be unique valid C++ identifiers.
+        std::vector<std::string> named_runtime_args;
 
-        // Schema for unnamed/variable RTAs + CRTAs
-        // (Must be of uint32_t; can be treated as varargs in the kernel code)
+        // Named CRTAs: names in declaration order. Must be unique valid C++ identifiers.
+        std::vector<std::string> named_common_runtime_args;
+
+        // Vararg RTAs: per-node count (unnamed, uint32_t, indexed from 0).
         using NumRTAsPerNode = std::vector<std::pair<NodeCoord, size_t>>;  // {node, num_rtas}
         NumRTAsPerNode num_runtime_args_per_node;                          // default: empty
+
+        // Vararg CRTAs: count (unnamed, uint32_t, indexed from 0).
         size_t num_common_runtime_args = 0;
     };
     RuntimeArgSchema runtime_arguments_schema{};

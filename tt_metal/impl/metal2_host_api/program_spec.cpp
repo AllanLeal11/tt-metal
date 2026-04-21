@@ -514,6 +514,44 @@ void ValidateProgramSpec(const ProgramSpec& spec, const CollectedSpecData& colle
             kernel.unique_id);
     }
 
+    // Validate named RTA/CRTA/CTA schema
+    for (const auto& kernel : spec.kernels) {
+        TT_FATAL(
+            IsValidCppIdentifier(kernel.args_namespace),
+            "KernelSpec '{}' has args_namespace '{}' which is not a valid C++ identifier.",
+            kernel.unique_id,
+            kernel.args_namespace);
+
+        // All three kinds share the user namespace — their names must be mutually unique.
+        std::unordered_map<std::string, const char*> seen;  // name -> kind
+        auto check_name = [&](const std::string& name, const char* kind) {
+            TT_FATAL(
+                IsValidCppIdentifier(name),
+                "KernelSpec '{}' {} name '{}' is not a valid C++ identifier.",
+                kernel.unique_id,
+                kind,
+                name);
+            auto [it, inserted] = seen.try_emplace(name, kind);
+            TT_FATAL(
+                inserted,
+                "KernelSpec '{}' has a naming collision: '{}' is declared as both a {} and a {}.",
+                kernel.unique_id,
+                name,
+                it->second,
+                kind);
+        };
+        for (const auto& name : kernel.runtime_arguments_schema.named_runtime_args) {
+            check_name(name, "named RTA");
+        }
+        for (const auto& name : kernel.runtime_arguments_schema.named_common_runtime_args) {
+            check_name(name, "named CRTA");
+        }
+        for (const auto& [name, value] : kernel.compile_time_arg_bindings) {
+            (void)value;
+            check_name(name, "named CTA");
+        }
+    }
+
     // Validate kernel thread counts
     for (const auto& kernel : spec.kernels) {
         TT_FATAL(kernel.num_threads > 0, "KernelSpec '{}' has no threads!", kernel.unique_id);
@@ -1465,6 +1503,14 @@ Program MakeProgramFromSpec(const ProgramSpec& user_spec, bool skip_validation) 
         const tt::tt_metal::DataflowBufferLocalAccessorHandleMap dfb_handles =
             MakeDataflowBufferLocalAccessorHandles(kernel_spec, dfb_name_to_id);
 
+        // Collect named-args schema for this kernel. The names are used at JIT time to emit
+        // kernel_args_generated.h and factor into the kernel cache key.
+        tt::tt_metal::KernelArgsSchema kernel_args_schema{
+            .named_runtime_args = kernel_spec.runtime_arguments_schema.named_runtime_args,
+            .named_common_runtime_args = kernel_spec.runtime_arguments_schema.named_common_runtime_args,
+            .args_namespace = kernel_spec.args_namespace,
+        };
+
         // Create the kernel object
         std::shared_ptr<Kernel> kernel;
 
@@ -1474,20 +1520,22 @@ Program MakeProgramFromSpec(const ProgramSpec& user_spec, bool skip_validation) 
                 auto config = MakeQuasarDataMovementConfig(kernel_spec);
                 auto processors = GetDMProcessorSet(DMProcessorMask{(uint8_t)(risc_mask & 0xFF)});
                 kernel = std::make_shared<experimental::quasar::QuasarDataMovementKernel>(
-                    kernel_src, node_ranges, config, processors, dfb_handles);
+                    kernel_src, node_ranges, config, processors, dfb_handles, kernel_args_schema);
             } else {
                 auto config = MakeQuasarComputeConfig(kernel_spec, dfb_name_to_id);
                 auto processors = GetComputeProcessorSet(ComputeEngineMask{(uint8_t)(risc_mask >> 8)});
                 kernel = std::make_shared<experimental::quasar::QuasarComputeKernel>(
-                    kernel_src, node_ranges, config, processors, dfb_handles);
+                    kernel_src, node_ranges, config, processors, dfb_handles, kernel_args_schema);
             }
         } else {  // gen1
             if (kernel_spec.is_dm_kernel()) {
                 auto config = MakeGen1DataMovementConfig(kernel_spec);
-                kernel = std::make_shared<DataMovementKernel>(kernel_src, node_ranges, config, dfb_handles);
+                kernel = std::make_shared<DataMovementKernel>(
+                    kernel_src, node_ranges, config, dfb_handles, kernel_args_schema);
             } else {
                 auto config = MakeGen1ComputeConfig(kernel_spec, dfb_name_to_id);
-                kernel = std::make_shared<ComputeKernel>(kernel_src, node_ranges, config, dfb_handles);
+                kernel =
+                    std::make_shared<ComputeKernel>(kernel_src, node_ranges, config, dfb_handles, kernel_args_schema);
             }
         }
 
@@ -1495,14 +1543,18 @@ Program MakeProgramFromSpec(const ProgramSpec& user_spec, bool skip_validation) 
         KernelHandle handle = program_impl->add_kernel(kernel, HalProgrammableCoreType::TENSIX);
         program_impl->register_kernel_spec_name(kernel_spec.unique_id, handle);
 
-        // Register the RTA+CRTA schema
-        const auto& schema = kernel_spec.runtime_arguments_schema;
-        std::unordered_map<CoreCoord, size_t> num_rtas_per_node;
-        for (const auto& [node_coord, num_args] : schema.num_runtime_args_per_node) {
-            num_rtas_per_node[node_coord] = num_args;
+        // Register the RTA+CRTA schema (named lists + vararg counts) with the ProgramImpl.
+        // Used by ValidateProgramRunParams and SetProgramRunParameters to validate and serialize
+        // the user-provided values at dispatch time.
+        const auto& user_schema = kernel_spec.runtime_arguments_schema;
+        detail::ProgramImpl::KernelRTASchema runtime_schema;
+        runtime_schema.named_runtime_args = user_schema.named_runtime_args;
+        runtime_schema.named_common_runtime_args = user_schema.named_common_runtime_args;
+        for (const auto& [node_coord, num_args] : user_schema.num_runtime_args_per_node) {
+            runtime_schema.num_runtime_args_per_node[node_coord] = num_args;
         }
-        program_impl->register_kernel_rta_schema(
-            kernel_spec.unique_id, num_rtas_per_node, schema.num_common_runtime_args);
+        runtime_schema.num_common_runtime_args = user_schema.num_common_runtime_args;
+        program_impl->register_kernel_rta_schema(kernel_spec.unique_id, std::move(runtime_schema));
     }
 
     return Program(std::move(program_impl));

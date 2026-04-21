@@ -29,11 +29,19 @@ struct ProgramRunParams {
         // Kernel identifier
         KernelSpecName kernel_spec_name;
 
-        // Defined runtime arguments (named & typed)
-        //   TODO
+        // Named runtime arguments (per-node, keyed by name).
+        // Every name in the kernel's RuntimeArgSchema::named_runtime_args must be set
+        // for every node the kernel runs on. Extra names are a validation error.
+        // Phase 1: values are uint32_t.
+        struct NodeNamedRTAs {
+            NodeCoord node;
+            std::unordered_map<std::string, uint32_t> args;
+        };
+        std::vector<NodeNamedRTAs> named_runtime_args;
 
-        // Defined common runtime arguments (named & typed)
-        //   TODO
+        // Named common runtime arguments (broadcast, keyed by name).
+        // Every name in the kernel's RuntimeArgSchema::named_common_runtime_args must be set.
+        std::unordered_map<std::string, uint32_t> named_common_runtime_args;
 
         // Unnamed runtime argument "varargs"
         // (these are specified per-node; length can vary per-node)

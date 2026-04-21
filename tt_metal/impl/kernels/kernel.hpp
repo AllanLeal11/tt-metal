@@ -88,6 +88,18 @@ KernelHandle CreateKernelFromString(
 // Metal 2.0: local DFB accessor names -> logical DFB ids
 using DataflowBufferLocalAccessorHandleMap = std::unordered_map<std::string, uint16_t>;
 
+// Metal 2.0: named RTA/CRTA schema passed to the Kernel.
+// The order of names in each vector determines byte-offset layout in the dispatch buffer
+// (first name at offset 0, each subsequent name at the next 4-byte slot for Phase 1).
+// args_namespace controls the C++ namespace emitted into kernel_args_generated.h; defaults
+// to "args" and is typically only overridden when fusing multiple logical kernels into one
+// source file.
+struct KernelArgsSchema {
+    std::vector<std::string> named_runtime_args;
+    std::vector<std::string> named_common_runtime_args;
+    std::string args_namespace = "args";
+};
+
 class Kernel : public JitBuildSettings {
 public:
     using Config = std::variant<
@@ -146,6 +158,9 @@ public:
         std::function<void(const std::unordered_map<std::string, uint32_t>& named_args)>) const override;
     void process_dataflow_buffer_local_accessor_handles(
         std::function<void(const std::string& accessor_name, uint16_t logical_dfb_id)>) const override;
+    void process_named_runtime_args(std::function<void(const std::string& name)>) const override;
+    void process_named_common_runtime_args(std::function<void(const std::string& name)>) const override;
+    const std::string& get_args_namespace() const override { return kernel_args_schema_.args_namespace; }
     void process_include_paths(const std::function<void(const std::string& path)>&) const override;
 
     void validate_runtime_args_size(
@@ -197,7 +212,8 @@ protected:
         const std::vector<uint32_t>& compile_args,
         const std::map<std::string, std::string>& defines,
         const std::unordered_map<std::string, uint32_t>& named_compile_args,
-        const DataflowBufferLocalAccessorHandleMap& dataflow_buffer_local_accessor_handles = {});
+        const DataflowBufferLocalAccessorHandleMap& dataflow_buffer_local_accessor_handles = {},
+        KernelArgsSchema kernel_args_schema = {});
 
     HalProgrammableCoreType programmable_core_type_;
     HalProcessorClassType processor_class_;
@@ -209,6 +225,7 @@ protected:
     std::vector<uint32_t> compile_time_args_;
     std::unordered_map<std::string, uint32_t> named_compile_time_args_;
     const DataflowBufferLocalAccessorHandleMap dataflow_buffer_local_accessor_handles_;
+    const KernelArgsSchema kernel_args_schema_;
     std::vector<std::vector<std::vector<uint32_t>>> core_to_runtime_args_;
     std::vector<std::vector<RuntimeArgsData>> core_to_runtime_args_data_;
     uint32_t common_runtime_args_count_{0};
@@ -240,7 +257,8 @@ public:
         const KernelSource& kernel_src,
         const CoreRangeSet& cr_set,
         const DataMovementConfig& config,
-        const DataflowBufferLocalAccessorHandleMap& dataflow_buffer_local_accessor_handles = {}) :
+        const DataflowBufferLocalAccessorHandleMap& dataflow_buffer_local_accessor_handles = {},
+        KernelArgsSchema kernel_args_schema = {}) :
         Kernel(
             HalProgrammableCoreType::TENSIX,
             HalProcessorClassType::DM,
@@ -249,7 +267,8 @@ public:
             config.compile_args,
             config.defines,
             config.named_compile_args,
-            dataflow_buffer_local_accessor_handles),
+            dataflow_buffer_local_accessor_handles,
+            std::move(kernel_args_schema)),
         config_(config) {
         TT_FATAL(
             MetalContext::instance().get_cluster().arch() != ARCH::QUASAR,
@@ -363,7 +382,8 @@ public:
         const KernelSource& kernel_src,
         const CoreRangeSet& cr_set,
         const ComputeConfig& config,
-        const DataflowBufferLocalAccessorHandleMap& dataflow_buffer_local_accessor_handles = {}) :
+        const DataflowBufferLocalAccessorHandleMap& dataflow_buffer_local_accessor_handles = {},
+        KernelArgsSchema kernel_args_schema = {}) :
         Kernel(
             HalProgrammableCoreType::TENSIX,
             HalProcessorClassType::COMPUTE,
@@ -372,7 +392,8 @@ public:
             config.compile_args,
             config.defines,
             config.named_compile_args,
-            dataflow_buffer_local_accessor_handles),
+            dataflow_buffer_local_accessor_handles,
+            std::move(kernel_args_schema)),
         config_(config) {
         TT_FATAL(
             MetalContext::instance().get_cluster().arch() != ARCH::QUASAR,
@@ -435,7 +456,8 @@ public:
         const CoreRangeSet& cr_set,
         const QuasarDataMovementConfig& config,
         const std::set<DataMovementProcessor>& dm_processors,
-        const DataflowBufferLocalAccessorHandleMap& dataflow_buffer_local_accessor_handles = {}) :
+        const DataflowBufferLocalAccessorHandleMap& dataflow_buffer_local_accessor_handles = {},
+        KernelArgsSchema kernel_args_schema = {}) :
         Kernel(
             HalProgrammableCoreType::TENSIX,
             HalProcessorClassType::DM,
@@ -444,7 +466,8 @@ public:
             config.compile_args,
             config.defines,
             config.named_compile_args,
-            dataflow_buffer_local_accessor_handles),
+            dataflow_buffer_local_accessor_handles,
+            std::move(kernel_args_schema)),
         config_(config),
         dm_processors_(dm_processors.begin(), dm_processors.end()) {
         TT_FATAL(
@@ -493,7 +516,8 @@ public:
         const CoreRangeSet& cr_set,
         const QuasarComputeConfig& config,
         const std::set<QuasarComputeProcessor>& compute_processors,
-        const DataflowBufferLocalAccessorHandleMap& dataflow_buffer_local_accessor_handles = {}) :
+        const DataflowBufferLocalAccessorHandleMap& dataflow_buffer_local_accessor_handles = {},
+        KernelArgsSchema kernel_args_schema = {}) :
         Kernel(
             HalProgrammableCoreType::TENSIX,
             HalProcessorClassType::COMPUTE,
@@ -502,7 +526,8 @@ public:
             config.compile_args,
             config.defines,
             config.named_compile_args,
-            dataflow_buffer_local_accessor_handles),
+            dataflow_buffer_local_accessor_handles,
+            std::move(kernel_args_schema)),
         config_(config),
         compute_processors_(compute_processors.begin(), compute_processors.end()) {
         TT_FATAL(
