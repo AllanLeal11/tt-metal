@@ -292,10 +292,21 @@ ttnn::Tensor reshape_tiled(
         shard_spec.shape[0] = requested_padded_shape_3d[-2];
         updated_mem_config = updated_mem_config.with_shard_spec(shard_spec);
     } else if (updated_mem_config.memory_layout() == TensorMemoryLayout::BLOCK_SHARDED) {
+        // For block sharding, both shard dimensions depend on the physical shape
+        // divided by the core grid. Build an interleaved TensorSpec for the output
+        // shape for its physical shape information, and let block_sharded() compute
+        // the correct shard spec.
         auto shard_spec = updated_mem_config.shard_spec().value();
-        shard_spec.shape[0] = requested_padded_shape_3d[-2];
-        shard_spec.shape[1] = requested_padded_shape_3d[-1];
-        updated_mem_config = updated_mem_config.with_shard_spec(shard_spec);
+        TensorSpec output_spec(
+            requested_shape_3d,
+            TensorLayout::fromPaddedShape(
+                tensor3d.dtype(),
+                PageConfig(tensor3d.layout()),
+                MemoryConfig(updated_mem_config.buffer_type()),
+                requested_shape_3d,
+                requested_padded_shape_3d));
+        updated_mem_config =
+            output_spec.block_sharded(shard_spec.grid.bounding_box(), shard_spec.orientation).memory_config();
     }
 
     auto output_tensor_3d = ttnn::prim::reshape_view(
