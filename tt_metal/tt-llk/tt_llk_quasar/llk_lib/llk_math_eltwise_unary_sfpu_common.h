@@ -76,15 +76,17 @@ inline void _llk_math_eltwise_unary_sfpu_init_()
 
 /**
  * @brief Runs SFPU operation for a tile (default 32x32)
- * @param: sfpu_func: function pointer to the sfpu functions to run, can look at list of functions here: common/inc/sfpu/cmath_sfpu*
- * @param: dst_tile_index: Starting tile index in the destination register, values = 0 - 15
- * @param: args: variable number of args can be passed into this function, that will be passed
- * to the SFPU function pointer
+ * @param sfpu_func: SFPU callback (unchanged — does not receive tile indices)
+ * @param dst_tile_index_in: tile in destination register to read from
+ * @param dst_tile_index_out: tile in destination register to write to
+ *   Phase 1: same as dst_tile_index_in. Phase 2 will use it for fork/join.
+ * @param args: forwarded to sfpu_func unchanged
  */
 template <class F, class... ARGS>
-inline void _llk_math_eltwise_unary_sfpu_params_(F&& sfpu_func, std::uint32_t dst_tile_index, ARGS&&... args)
+inline void _llk_math_eltwise_unary_sfpu_params_(F&& sfpu_func, std::uint32_t dst_tile_index_in, std::uint32_t dst_tile_index_out, ARGS&&... args)
 {
-    _llk_math_eltwise_unary_sfpu_start_(dst_tile_index);
+    // Phase 1: addressed from dst_tile_index_in.
+    _llk_math_eltwise_unary_sfpu_start_(dst_tile_index_in);
 
     for (std::uint32_t face = 0; face < NUM_FACES; face++)
     {
