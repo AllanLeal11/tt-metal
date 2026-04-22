@@ -1019,6 +1019,33 @@ void py_module(nb::module_& mod) {
                 >>> # All processes continue from here
         )doc");
 
+    // Allgather a single int from every rank; returns list[int] of length num_ranks.
+    mod.def(
+        "allgather_int",
+        [](int value) -> std::vector<int> {
+            if (!DistributedContext::is_initialized()) {
+                throw std::runtime_error("Distributed context not initialized. Call init_distributed_context() first.");
+            }
+            const auto& ctx = DistributedContext::get_current_world();
+            const int num_ranks = static_cast<int>(*ctx->size());
+            std::vector<int> recv_buf(num_ranks);
+            ctx->all_gather(
+                ttsl::Span<std::byte>(reinterpret_cast<std::byte*>(&value), sizeof(int)),
+                ttsl::Span<std::byte>(
+                    reinterpret_cast<std::byte*>(recv_buf.data()), static_cast<std::size_t>(num_ranks) * sizeof(int)));
+            return recv_buf;
+        },
+        nb::arg("value"),
+        R"doc(
+            Allgather a single integer value from all processes.
+
+            Returns a list of length ``num_ranks`` where element ``i`` is the value
+            contributed by rank ``i``.
+
+            Raises:
+                RuntimeError: If the distributed context has not been initialized.
+        )doc");
+
     auto m_experimental = mod.def_submodule("experimental", "experimental distributed operations");
     m_experimental.def(
         "get_worker_noc_hop_distance",
@@ -1080,6 +1107,7 @@ void py_module(nb::module_& mod) {
                 int: Hop count on the selected NOC.
         )doc");
     ttnn::pipeline_module::bind_blitz_decode_pipeline(m_experimental);
+    ttnn::pipeline_module::bind_pipeline_builder(m_experimental);
 }
 
 }  // namespace ttnn::distributed

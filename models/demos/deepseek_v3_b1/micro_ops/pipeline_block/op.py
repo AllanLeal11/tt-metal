@@ -73,6 +73,27 @@ class PipelineConfigEntry:
     exit_node_coord: ttnn.MeshCoordinate
 
 
+@dataclass
+class HostIoPlacement:
+    """Per-core placement for the four socket kernels at pipeline stage 0.
+
+    When the H2D chip and the forward D2D exit chip are the same device,
+    fwd_d2d_core must differ from h2d_core so two persistent BRISC kernels
+    are not dispatched to the same Tensix core.  The same constraint applies
+    to lb_d2d_core / d2h_core when the loopback D2D entry chip and D2H chip
+    are the same device.
+    """
+
+    h2d_core: ttnn.CoreCoord
+    d2h_core: ttnn.CoreCoord
+    fwd_d2d_core: ttnn.CoreCoord
+    lb_d2d_core: ttnn.CoreCoord
+
+    @staticmethod
+    def default(core: ttnn.CoreCoord) -> "HostIoPlacement":
+        return HostIoPlacement(h2d_core=core, d2h_core=core, fwd_d2d_core=core, lb_d2d_core=core)
+
+
 class PipelineBlock:
     def __init__(
         self,
@@ -97,6 +118,7 @@ class PipelineBlock:
         my_stage_idx=None,
         stages_metadata=None,
         pipeline_config=None,
+        host_io_placement=None,
     ):
         assert (
             upstream_d2d_socket_fifo_size >= upstream_d2d_socket_page_size
@@ -151,6 +173,7 @@ class PipelineBlock:
                 d2h_socket_fifo_size,
                 d2h_socket_page_size,
                 embedding_tensor,
+                host_io_placement=host_io_placement,
             )
         elif self.is_last_stage and not initialize_loopback:
             self._init_last_stage_with_d2h(
@@ -211,9 +234,12 @@ class PipelineBlock:
         d2h_socket_fifo_size,
         d2h_socket_page_size,
         embedding_tensor,
+        host_io_placement=None,
     ):
         assert h2d_socket_fifo_size is not None, "H2D Socket FIFO Size must be provided to first pipeline stage"
         assert embedding_tensor is not None, "Embedding Tensor must be provided to first pipeline stage"
+        if host_io_placement is None:
+            host_io_placement = HostIoPlacement.default(pipeline_core_coord)
 
         h2d_device_coord = pipeline_config[self.my_stage_idx].entry_node_coord
         embedding_size_bytes = embedding_tensor.shape[-1] * dtype_size(embedding_tensor.dtype)
@@ -229,7 +255,7 @@ class PipelineBlock:
 
         self.h2d_socket = ttnn.H2DSocket(
             mesh_device,
-            ttnn.MeshCoreCoord(h2d_device_coord, pipeline_core_coord),
+            ttnn.MeshCoreCoord(h2d_device_coord, host_io_placement.h2d_core),
             ttnn.BufferType.L1,
             h2d_socket_fifo_size,
             ttnn.H2DMode.HOST_PUSH,
@@ -238,7 +264,7 @@ class PipelineBlock:
         if self.initialize_loopback:
             d2h_device_coord = pipeline_config[self.num_procs].exit_node_coord
             self.d2h_socket = ttnn.D2HSocket(
-                mesh_device, ttnn.MeshCoreCoord(d2h_device_coord, pipeline_core_coord), d2h_socket_fifo_size
+                mesh_device, ttnn.MeshCoreCoord(d2h_device_coord, host_io_placement.d2h_core), d2h_socket_fifo_size
             )
 
         self.host_io = HostInterface(
@@ -248,9 +274,11 @@ class PipelineBlock:
             d2h_socket_page_size,
             core_to_core_socket_buffer_size=downstream_d2d_socket_fifo_size,
             h2d_downstream_core=ttnn.MeshCoreCoord(
-                pipeline_config[self.my_stage_idx].exit_node_coord, pipeline_core_coord
+                pipeline_config[self.my_stage_idx].exit_node_coord, host_io_placement.fwd_d2d_core
             ),
-            d2h_upstream_core=ttnn.MeshCoreCoord(pipeline_config[self.num_procs].entry_node_coord, pipeline_core_coord),
+            d2h_upstream_core=ttnn.MeshCoreCoord(
+                pipeline_config[self.num_procs].entry_node_coord, host_io_placement.lb_d2d_core
+            ),
             embedding_tensor=embedding_tensor,
         )
 
@@ -260,7 +288,7 @@ class PipelineBlock:
             downstream_d2d_socket_page_size,
             downstream_d2d_socket_fifo_size,
             downstream_d2d_socket_page_size,
-            ttnn.MeshCoreCoord(pipeline_config[self.my_stage_idx].exit_node_coord, pipeline_core_coord),
+            ttnn.MeshCoreCoord(pipeline_config[self.my_stage_idx].exit_node_coord, host_io_placement.fwd_d2d_core),
             ttnn.MeshCoreCoord(pipeline_config[next_stage].entry_node_coord, pipeline_core_coord),
             upstream_socket=self.host_io.get_downstream_socket(),
             sender_mesh=MeshWrapper(mesh_device),
@@ -275,7 +303,7 @@ class PipelineBlock:
                 upstream_d2d_socket_fifo_size,
                 upstream_d2d_socket_page_size,
                 ttnn.MeshCoreCoord(pipeline_config[last_stage].exit_node_coord, pipeline_core_coord),
-                ttnn.MeshCoreCoord(pipeline_config[self.num_procs].entry_node_coord, pipeline_core_coord),
+                ttnn.MeshCoreCoord(pipeline_config[self.num_procs].entry_node_coord, host_io_placement.lb_d2d_core),
                 downstream_socket=self.host_io.get_upstream_socket(),
                 sender_mesh=MeshWrapper(rank=ls.rank, mesh_id=ls.mesh_id),
                 receiver_mesh=MeshWrapper(mesh_device),

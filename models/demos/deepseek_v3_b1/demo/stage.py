@@ -17,7 +17,7 @@ import torch
 
 import ttnn
 from models.demos.deepseek_v3_b1.fused_ops.lm_head_sampling.op import LMHeadSampling
-from models.demos.deepseek_v3_b1.micro_ops.pipeline_block.op import PipelineBlock, StageMetadata
+from models.demos.deepseek_v3_b1.micro_ops.pipeline_block.op import HostIoPlacement, PipelineBlock, StageMetadata
 from models.demos.deepseek_v3_b1.model_dimensions import LogicalModelDimensions
 from models.demos.deepseek_v3_b1.tests.unit_tests.ccl_test_utils import build_broadcast_test_inputs
 from models.demos.deepseek_v3_b1.weights.prepare import DeepSeekV3EmbeddingLayerWeights, DeepSeekV3LMHeadWeights
@@ -30,6 +30,7 @@ ACTIVATION_DIM = 7168
 ACTIVATION_PAGE_SIZE_BYTES = ACTIVATION_DIM * 2
 ACTIVATION_FIFO_SIZE = ACTIVATION_PAGE_SIZE_BYTES * 2
 PIPELINE_CORE_COORD = ttnn.CoreCoord(12, 8)
+SECOND_PIPELINE_CORE_COORD = ttnn.CoreCoord(12, 7)
 
 
 @dataclass
@@ -80,6 +81,7 @@ class EmbeddingStage(StageKind):
     def create_pipeline_block(self, ctx: StageContext) -> PipelineBlock:
         mesh_device = ctx.mesh_device
         my_stage_idx = ctx.my_stage_idx
+        pipeline_config = ctx.pipeline_config
         # Loopback entry + D2H must use the same page size (see PipelineBlock._init_first_stage).
         # Token-sized: LMHead / sampling returns a token page to the host (default).
         # Activation-sized: embed → passthrough chain returns an embedding row on loopback.
@@ -94,6 +96,9 @@ class EmbeddingStage(StageKind):
             d2h_fifo = TOKEN_FIFO_SIZE
             d2h_page = TOKEN_PAGE_SIZE_BYTES
 
+        num_procs = len(pipeline_config) - 1
+        host_io_placement = self._create_host_io_placement(pipeline_config, num_procs)
+
         return PipelineBlock(
             mesh_device,
             PIPELINE_CORE_COORD,
@@ -107,7 +112,37 @@ class EmbeddingStage(StageKind):
             embedding_tensor=self._weights.embedding,
             my_stage_idx=my_stage_idx,
             stages_metadata=ctx.stages_metadata,
-            pipeline_config=ctx.pipeline_config,
+            pipeline_config=pipeline_config,
+            host_io_placement=host_io_placement,
+        )
+
+    @staticmethod
+    def _create_host_io_placement(pipeline_config, num_procs) -> HostIoPlacement:
+        """Resolve per-socket core coords for the four stage-0 kernels.
+
+        When the H2D chip and the forward D2D chip are the same device, two
+        persistent BRISC kernels would land on the same Tensix core.  We move
+        H2D (not D2D) to the alt core so the D2D send core stays at
+        PIPELINE_CORE_COORD — other stages build their entry socket configs
+        using pipeline_core_coord and must see the same sender core.  The same
+        logic applies to D2H vs. the loopback D2D entry.
+        """
+        h2d_chip = pipeline_config[0].entry_node_coord
+        fwd_d2d_chip = pipeline_config[0].exit_node_coord
+        lb_d2d_chip = pipeline_config[num_procs].entry_node_coord
+        d2h_chip = pipeline_config[num_procs].exit_node_coord
+
+        def _same(a, b):
+            return a[0] == b[0] and a[1] == b[1]
+
+        h2d_core = SECOND_PIPELINE_CORE_COORD if _same(h2d_chip, fwd_d2d_chip) else PIPELINE_CORE_COORD
+        d2h_core = SECOND_PIPELINE_CORE_COORD if _same(d2h_chip, lb_d2d_chip) else PIPELINE_CORE_COORD
+
+        return HostIoPlacement(
+            h2d_core=h2d_core,
+            d2h_core=d2h_core,
+            fwd_d2d_core=PIPELINE_CORE_COORD,
+            lb_d2d_core=PIPELINE_CORE_COORD,
         )
 
 
