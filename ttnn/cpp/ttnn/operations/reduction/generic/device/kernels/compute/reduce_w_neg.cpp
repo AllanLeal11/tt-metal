@@ -4,8 +4,6 @@
 
 #include <cstdint>
 
-#include "api/compute/bcast.h"
-#include "api/compute/reconfig_data_format.h"
 #include "api/compute/reduce.h"
 
 #include "api/compute/eltwise_binary.h"
@@ -15,6 +13,10 @@
 #include "experimental/circular_buffer.h"
 
 #include "llk_math_eltwise_binary.h"
+
+#ifdef REDUCE_MINMAX_TWO_TILE_SCALER
+#include "api/compute/bcast.h"
+#endif
 
 void kernel_main() {
     uint32_t Ht = get_compile_time_arg_val(0);
@@ -36,7 +38,13 @@ void kernel_main() {
 
     compute_kernel_hw_startup(cb_input, cb_scaler, cb_output);
 
+#ifdef REDUCE_MINMAX_TWO_TILE_SCALER
+    // Reader pushed two tiles to c_2 (unity, then user scale); both must be visible before reduce or post-mul.
+    cb_scaler_obj.wait_front(2);
+#else
     cb_scaler_obj.wait_front(1);  // scaler tile from the reader
+#endif
+
     for (uint32_t nc = 0; nc < NC; nc++) {
         constexpr int onetile = 1;
         int dst_idx = 0;
@@ -90,22 +98,23 @@ void kernel_main() {
             negative_tile(dst_idx);
             tile_regs_wait();
             cb_acc_obj.pop_front(onetile);
+
+#ifdef REDUCE_MINMAX_TWO_TILE_SCALER
             cb_acc_obj.reserve_back(onetile);
             tile_regs_commit();
-
             pack_tile(dst_idx, cb_acc);
             tile_regs_release();
             cb_acc_obj.push_back(onetile);
-
             cb_acc_obj.wait_front(onetile);
+
             tile_regs_acquire();
             mul_tiles_bcast_scalar_init_short(cb_acc, cb_scaler);
-            mul_tiles_bcast_scalar(cb_acc, cb_scaler, 0, 0, dst_idx);
-            tile_regs_commit();
-            cb_acc_obj.pop_front(onetile);
-
-            cb_output_obj.reserve_back(onetile);
+            mul_tiles_bcast_scalar(cb_acc, cb_scaler, 0, 1, dst_idx);
             tile_regs_wait();
+            cb_acc_obj.pop_front(onetile);
+#endif
+            cb_output_obj.reserve_back(onetile);
+            tile_regs_commit();
             pack_tile(dst_idx, cb_output);
             tile_regs_release();
             cb_output_obj.push_back(onetile);

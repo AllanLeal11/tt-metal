@@ -11,6 +11,10 @@
 #endif
 #include "experimental/circular_buffer.h"
 
+#ifdef REDUCE_MINMAX_TWO_TILE_SCALER
+#include "api/compute/bcast.h"
+#endif
+
 void kernel_main() {
     uint32_t Ht = get_compile_time_arg_val(0);
     uint32_t Wt = get_compile_time_arg_val(1);
@@ -27,7 +31,11 @@ void kernel_main() {
     mm_init(tt::CBIndex::c_0, tt::CBIndex::c_2, tt::CBIndex::c_3);
 #endif
 
+#ifdef REDUCE_MINMAX_TWO_TILE_SCALER
+    cb2.wait_front(2);  // tile0 unity (reduce), tile1 user scale (post-mul)
+#else
     cb2.wait_front(1);  // scaler tile from the reader
+#endif
     for (uint32_t nc = 0; nc < NC; nc++) {
         constexpr int onetile = 1;
         int reduce_dst_idx = 0;
@@ -47,6 +55,19 @@ void kernel_main() {
                 cb0.pop_front(onetile);
             }
 
+#ifdef REDUCE_MINMAX_TWO_TILE_SCALER
+            cb0.reserve_back(onetile);
+            pack_tile(reduce_dst_idx, tt::CBIndex::c_0);
+            cb0.push_back(onetile);
+            release_dst();
+            cb0.wait_front(onetile);
+
+            tile_regs_acquire();
+            mul_tiles_bcast_scalar_init_short(tt::CBIndex::c_0, tt::CBIndex::c_2);
+            mul_tiles_bcast_scalar(tt::CBIndex::c_0, tt::CBIndex::c_2, 0, 1, reduce_dst_idx);
+            tile_regs_wait();
+            cb0.pop_front(onetile);
+#endif
             cb3.reserve_back(onetile);
             pack_tile(reduce_dst_idx, tt::CBIndex::c_3);
             cb3.push_back(onetile);
