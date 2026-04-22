@@ -26,7 +26,7 @@ void kernel_main() {
     constexpr auto tensor_args = TensorAccessorArgs<2>();
     // Tile 0: unity for reduce_tile(..., itile_scaler=0). Tile 1: user scale for post-mul.
     generate_reduce_scaler(cb_id_in2, packed_reduce_unity);
-    generate_reduce_scaler(cb_id_in2, packed_post_scale);
+    generate_reduce_scaler_for_minmax_post_bcast(cb_id_in2, packed_post_scale);
 #else
     constexpr uint32_t scaler = get_compile_time_arg_val(0);
     constexpr auto tensor_args = TensorAccessorArgs<1>();

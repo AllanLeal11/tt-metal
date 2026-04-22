@@ -32,7 +32,7 @@ void kernel_main() {
     constexpr uint32_t packed_reduce_unity = get_compile_time_arg_val(4);
     constexpr uint32_t packed_post_scale = get_compile_time_arg_val(5);
     generate_reduce_scaler(cb_id_in2, packed_reduce_unity);  // tile 0 on c_2: 1.0 for reduce_tile(..., itile_scaler=0)
-    generate_reduce_scaler(cb_id_in2, packed_post_scale);    // tile 1 on c_2: user scalar for compute post-mul
+    generate_reduce_scaler_for_minmax_post_bcast(cb_id_in2, packed_post_scale);  // bcast-mul must see user scale
     constexpr auto tensor_args = TensorAccessorArgs<6>();
 #else
     constexpr uint32_t scalar = get_compile_time_arg_val(4);

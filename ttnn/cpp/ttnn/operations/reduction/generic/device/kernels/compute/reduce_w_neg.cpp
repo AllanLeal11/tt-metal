@@ -15,7 +15,7 @@
 #include "llk_math_eltwise_binary.h"
 
 #ifdef REDUCE_MINMAX_TWO_TILE_SCALER
-#include "api/compute/bcast.h"
+#include "api/compute/eltwise_binary_sfpu.h"
 #endif
 
 void kernel_main() {
@@ -100,18 +100,14 @@ void kernel_main() {
             cb_acc_obj.pop_front(onetile);
 
 #ifdef REDUCE_MINMAX_TWO_TILE_SCALER
-            cb_acc_obj.reserve_back(onetile);
-            tile_regs_commit();
-            pack_tile(dst_idx, cb_acc);
-            tile_regs_release();
-            cb_acc_obj.push_back(onetile);
-            cb_acc_obj.wait_front(onetile);
-
+            // Match reduce_w.cpp: post-reduce uninit, then in-DST mul (copy_tile c_2[1] + mul_binary_tile).
+            reduce_uninit(cb_ineg);
             tile_regs_acquire();
-            mul_tiles_bcast_scalar_init_short(cb_acc, cb_scaler);
-            mul_tiles_bcast_scalar(cb_acc, cb_scaler, 0, 1, dst_idx);
+            copy_tile_init(cb_scaler);
+            copy_tile(cb_scaler, 1, 1);
+            mul_binary_tile_init();
+            mul_binary_tile(dst_idx, 1, dst_idx);
             tile_regs_wait();
-            cb_acc_obj.pop_front(onetile);
 #endif
             cb_output_obj.reserve_back(onetile);
             tile_regs_commit();
