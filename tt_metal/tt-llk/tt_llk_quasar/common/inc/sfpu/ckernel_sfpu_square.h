@@ -4,31 +4,26 @@
 
 #pragma once
 
+#include <cstdint>
+
 #include "ckernel_ops.h"
 #include "ckernel_trisc_common.h"
 #include "cmath_common.h"
+#include "sfpi.h"
 
 namespace ckernel
 {
 namespace sfpu
 {
 // Calculates SQUARE for number of rows of output SFPU ops (Quasar = 2 rows)
-template <bool APPROXIMATION_MODE>
-inline void _calculate_square_sfp_rows_()
+inline void _calculate_square_(std::uint32_t dst_tile_index_in, std::uint32_t dst_tile_index_out, const int iterations)
 {
-    TTI_SFPLOAD(p_sfpu::LREG0, p_sfpu::sfpmem::DEFAULT, ADDR_MOD_7, 0, 0); // load from dest into lreg[0]
-    // Multiply LREG0 * LREG0, store result in LREG0
-    TTI_SFPMUL(p_sfpu::LREG0, p_sfpu::LREG0, p_sfpu::LCONST_0, p_sfpu::LREG0, 0);
-    // Store result back to destination
-    TTI_SFPSTORE(p_sfpu::LREG0, p_sfpu::sfpmem::DEFAULT, ADDR_MOD_7, 0, 0);
-}
-
-inline void _calculate_square_(const int iterations)
-{
+    constexpr std::uint32_t SFP_DST_TILE_ROWS = 32;
 #pragma GCC unroll 8
     for (int d = 0; d < iterations; d++)
     {
-        _calculate_square_sfp_rows_<false>();
+        sfpi::vFloat val                                      = sfpi::dst_reg[dst_tile_index_in * SFP_DST_TILE_ROWS];
+        sfpi::dst_reg[dst_tile_index_out * SFP_DST_TILE_ROWS] = val * val;
         ckernel::math::_incr_counters_<0x0, 0x0, ckernel::math::SFP_ROWS, 0x0>(); // does the dest_reg++ (increments by 2 rows)
     }
 }
