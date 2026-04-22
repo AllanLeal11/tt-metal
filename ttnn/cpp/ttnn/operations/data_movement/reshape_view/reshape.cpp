@@ -299,12 +299,8 @@ ttnn::Tensor reshape_tiled(
         auto shard_spec = updated_mem_config.shard_spec().value();
         TensorSpec output_spec(
             requested_shape_3d,
-            TensorLayout::fromPaddedShape(
-                tensor3d.dtype(),
-                PageConfig(tensor3d.layout()),
-                MemoryConfig(updated_mem_config.buffer_type()),
-                requested_shape_3d,
-                requested_padded_shape_3d));
+            TensorLayout(
+                tensor3d.dtype(), PageConfig(tensor3d.layout()), MemoryConfig(updated_mem_config.buffer_type())));
         updated_mem_config =
             output_spec.block_sharded(shard_spec.grid.bounding_box(), shard_spec.orientation).memory_config();
     }
