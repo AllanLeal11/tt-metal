@@ -1820,7 +1820,6 @@ void ProgramImpl::generate_trace_dispatch_commands(IDevice* device, bool use_pre
 void detail::ProgramImpl::compile(IDevice* device, bool force_slow_dispatch) {
     // ZoneScoped;
     const auto& build_env = BuildEnvManager::get_instance().get_device_build_env(device->build_id());
-    ContextId context_id = extract_context_id(device);
 
     if (compiled_.contains(build_env.build_key())) {
         Inspector::program_compile_already_exists(this, device, build_env.build_key());
@@ -1840,8 +1839,7 @@ void detail::ProgramImpl::compile(IDevice* device, bool force_slow_dispatch) {
         "dependent on information that is set during device initialization.",
         this->get_id());
 
-    bool is_mock = tt::tt_metal::MetalContext::instance(context_id).get_cluster().is_mock_or_emulated();
-    bool remote_enabled = jit_server::JitCompileRpcClient::enabled() && !is_mock;
+    bool remote_enabled = jit_server::JitCompileRpcClient::enabled();
     std::vector<std::shared_future<void>> events;
 
     auto prep_kernel = [&](const std::shared_ptr<Kernel>& kernel) {
@@ -1902,15 +1900,8 @@ void detail::ProgramImpl::compile(IDevice* device, bool force_slow_dispatch) {
                 launch_build_step(
                     [&, kernel] {
                         auto [build_options, kernel_hash] = prep_kernel(kernel);
-
-                        if (!is_mock) {
-                            kernel->register_kernel_elf_paths_with_watcher(*device);
-                            jit_build_once(kernel_hash, [&] { GenerateBinaries(device, build_options, kernel); });
-                        } else {
-                            // Create empty stub binaries for mock devices
-                            std::vector<const ll_api::memory*> empty_binaries(kernel->expected_num_binaries(), nullptr);
-                            kernel->set_binaries(build_env.build_key(), std::move(empty_binaries));
-                        }
+                        kernel->register_kernel_elf_paths_with_watcher(*device);
+                        jit_build_once(kernel_hash, [&] { GenerateBinaries(device, build_options, kernel); });
                         Inspector::program_kernel_compile_finished(this, device, kernel, build_options);
                     },
                     events);
@@ -1919,16 +1910,13 @@ void detail::ProgramImpl::compile(IDevice* device, bool force_slow_dispatch) {
         sync_build_steps(events);
     }
 
-    // Mock/emulated devices don't have binaries to read.
-    if (!is_mock) {
-        for (const auto& kernels : kernels_) {
-            for (const auto& pair : kernels) {
-                const auto& kernel = pair.second;
-                launch_build_step([kernel, device] { kernel->read_binaries(device); }, events);
-            }
+    for (const auto& kernels : kernels_) {
+        for (const auto& pair : kernels) {
+            const auto& kernel = pair.second;
+            launch_build_step([kernel, device] { kernel->read_binaries(device); }, events);
         }
-        sync_build_steps(events);
     }
+    sync_build_steps(events);
     if (detail::MemoryReporter::enabled()) {
         detail::MemoryReporter::inst().flush_program_memory_usage(get_id(), device);
     }
