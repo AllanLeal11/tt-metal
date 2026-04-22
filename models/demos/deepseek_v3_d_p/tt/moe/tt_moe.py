@@ -345,10 +345,6 @@ class TtMoe(LightweightModule):
         if x_for_gate.layout != ttnn.TILE_LAYOUT:
             x_for_gate = ttnn.to_layout(x_for_gate, ttnn.TILE_LAYOUT)
 
-        if self.gate_input_mem_config is not None:
-            # TODO: check perf loss for x_for_gate in DRAM vs to_memory_config(gate_input_mem_config)
-            x_for_gate = ttnn.to_memory_config(x_for_gate, self.gate_input_mem_config)
-
         scores, indices, gate_logits, tt_expert_offsets, tt_expert_token_counts = self.gate(x_for_gate)
         ttnn.deallocate(x_for_gate)  # x_for_gate is no longer needed.
         gate_logits = (
