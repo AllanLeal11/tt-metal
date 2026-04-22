@@ -70,31 +70,6 @@ void create_tensor_cb(
 
 namespace {
 
-    auto* mesh_device = tensor_args.input_tensor.device();
-
-    auto sem_buffer_type = operation_attributes.use_l1_small_for_semaphores ? tt::tt_metal::BufferType::L1_SMALL
-                                                                            : tt::tt_metal::BufferType::L1;
-    auto init_barrier_semaphore = ttnn::global_semaphore::create_global_semaphore(
-        mesh_device, operation_attributes.worker_core_range_set, 0, sem_buffer_type);
-    auto final_barrier_semaphore = ttnn::global_semaphore::create_global_semaphore(
-        mesh_device, operation_attributes.worker_core_range_set, 0, sem_buffer_type);
-    tt::tt_metal::distributed::Synchronize(mesh_device, std::nullopt, {});
-
-    for (const auto& coord : tensor_coords.coords()) {
-        auto cached_program = create_at(
-            operation_attributes,
-            coord,
-            tensor_args,
-            tensor_return_value,
-            tensor_coords,
-            init_barrier_semaphore,
-            final_barrier_semaphore);
-        workload.add_program(ttnn::MeshCoordinateRange(coord), std::move(cached_program.program));
-        shared_variables.emplace(coord, std::move(cached_program.shared_variables));
-    }
-    return cached_mesh_workload_t(std::move(workload), std::move(shared_variables));
-}
-
 // Tile-layout path: TILE inputs, fused untilize across sender + idle cores.
 ttnn::device_operation::CachedProgram<DispatchSharedVariables> create_at_tile_layout(
     const DispatchParams& operation_attributes,
@@ -1243,10 +1218,12 @@ DispatchProgramFactory::cached_mesh_workload_t DispatchProgramFactory::create_me
 
     auto* mesh_device = tensor_args.input_tensor.device();
 
-    auto init_barrier_semaphore =
-        ttnn::global_semaphore::create_global_semaphore(mesh_device, operation_attributes.worker_core_range_set, 0);
-    auto final_barrier_semaphore =
-        ttnn::global_semaphore::create_global_semaphore(mesh_device, operation_attributes.worker_core_range_set, 0);
+    auto sem_buffer_type = operation_attributes.use_l1_small_for_semaphores ? tt::tt_metal::BufferType::L1_SMALL
+                                                                            : tt::tt_metal::BufferType::L1;
+    auto init_barrier_semaphore = ttnn::global_semaphore::create_global_semaphore(
+        mesh_device, operation_attributes.worker_core_range_set, 0, sem_buffer_type);
+    auto final_barrier_semaphore = ttnn::global_semaphore::create_global_semaphore(
+        mesh_device, operation_attributes.worker_core_range_set, 0, sem_buffer_type);
     tt::tt_metal::distributed::Synchronize(mesh_device, std::nullopt, {});
 
     for (const auto& coord : tensor_coords.coords()) {
