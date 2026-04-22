@@ -25,6 +25,7 @@ inline void llk_math_eltwise_unary_sfpu_hardsigmoid(uint dst_index, int vector_m
     _llk_math_eltwise_unary_sfpu_params_(
         static_cast<void (*)()>(ckernel::sfpu::_calculate_activation_<APPROXIMATE, ACTIVATION, ITERATIONS>),
         dst_index,
+        dst_index,
         vector_mode);
 }
 
@@ -37,7 +38,7 @@ inline void llk_math_eltwise_unary_sfpu_softsign_init() {
 template <bool APPROXIMATE, int ITERATIONS = 8>
 inline void llk_math_eltwise_unary_sfpu_softsign(uint dst_index, int vector_mode = (int)VectorMode::RC) {
     _llk_math_eltwise_unary_sfpu_params_(
-        ckernel::sfpu::calculate_softsign<APPROXIMATE, ITERATIONS>, dst_index, vector_mode);
+        ckernel::sfpu::calculate_softsign<APPROXIMATE, ITERATIONS>, dst_index, dst_index, vector_mode);
 }
 
 // celu
@@ -53,6 +54,7 @@ inline void llk_math_eltwise_unary_sfpu_celu(
             ckernel::sfpu::calculate_celu<APPROXIMATE, is_fp32_dest_acc_en, ITERATIONS>(alpha, alpha_recip);
         },
         dst_index,
+        dst_index,
         vector_mode,
         alpha,
         alpha_recip);
@@ -66,7 +68,7 @@ inline void llk_math_eltwise_unary_sfpu_softshrink_init() {
 template <bool APPROXIMATE, int ITERATIONS = 8>
 inline void llk_math_eltwise_unary_sfpu_softshrink(uint dst_index, uint param0, int vector_mode = (int)VectorMode::RC) {
     _llk_math_eltwise_unary_sfpu_params_(
-        ckernel::sfpu::calculate_softshrink<APPROXIMATE, ITERATIONS>, dst_index, vector_mode, param0);
+        ckernel::sfpu::calculate_softshrink<APPROXIMATE, ITERATIONS>, dst_index, dst_index, vector_mode, param0);
 }
 
 // hardshrink
@@ -77,7 +79,7 @@ inline void llk_math_eltwise_unary_sfpu_hardshrink_init() {
 template <bool APPROXIMATE, int ITERATIONS = 8>
 inline void llk_math_eltwise_unary_sfpu_hardshrink(uint dst_index, uint param0, int vector_mode = (int)VectorMode::RC) {
     _llk_math_eltwise_unary_sfpu_params_(
-        ckernel::sfpu::calculate_hardshrink<APPROXIMATE, ITERATIONS>, dst_index, vector_mode, param0);
+        ckernel::sfpu::calculate_hardshrink<APPROXIMATE, ITERATIONS>, dst_index, dst_index, vector_mode, param0);
 }
 
 }  // namespace ckernel
