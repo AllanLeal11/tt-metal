@@ -54,12 +54,12 @@ from tests.ttnn.utils_for_testing import comp_pcc
 
 
 @pytest.mark.parametrize(
-    "seq_len_per_chip, emb_dim, hidden_dim, num_routed_experts, num_experts_per_tok, capacity_factor, gate_fallback_mode, run_pcc_check",
+    "seq_len_per_chip, emb_dim, hidden_dim, num_routed_experts, num_experts_per_tok, gate_fallback_mode, run_pcc_check",
     [
         # fmt: off
-        pytest.param(3200, DeepSeekV3Config.EMB_SIZE, DeepSeekV3Config.MOE_INTERMEDIATE_SIZE, 256, 8, 2, GateComputeMode.DEVICE, False, marks=pytest.mark.skipif(not is_blackhole(), reason="Blackhole only")),
-        pytest.param(1600, DeepSeekV3Config.EMB_SIZE, DeepSeekV3Config.MOE_INTERMEDIATE_SIZE, 64, 8, 2, GateComputeMode.HOST_ALL, True),
-        pytest.param(3200, DeepSeekV3Config.EMB_SIZE, DeepSeekV3Config.MOE_INTERMEDIATE_SIZE, 256, 8, 2, GateComputeMode.HOST_ALL, True, marks=[pytest.mark.skipif(not is_blackhole(), reason="Blackhole only"), pytest.mark.skipif(not is_galaxy(), reason="Requires Galaxy")]),
+        pytest.param(3200, DeepSeekV3Config.EMB_SIZE, DeepSeekV3Config.MOE_INTERMEDIATE_SIZE, 256, 8, GateComputeMode.DEVICE, False, marks=pytest.mark.skipif(not is_blackhole(), reason="Blackhole only")),
+        pytest.param(1600, DeepSeekV3Config.EMB_SIZE, DeepSeekV3Config.MOE_INTERMEDIATE_SIZE, 64, 8, GateComputeMode.HOST_ALL, True),
+        pytest.param(3200, DeepSeekV3Config.EMB_SIZE, DeepSeekV3Config.MOE_INTERMEDIATE_SIZE, 256, 8, GateComputeMode.HOST_ALL, True, marks=[pytest.mark.skipif(not is_blackhole(), reason="Blackhole only"), pytest.mark.skipif(not is_galaxy(), reason="Requires Galaxy")]),
         # fmt: on
     ],
 )
@@ -110,7 +110,6 @@ def test_ttnn_moe(
     hidden_dim,
     num_routed_experts,
     num_experts_per_tok,
-    capacity_factor,
     run_pcc_check,
     num_links,
     topology,
@@ -149,11 +148,16 @@ def test_ttnn_moe(
         f"emb_dim={emb_dim}, experts={num_routed_experts}"
     )
 
-    experts_per_chip, metadata_len, max_dispatched_tokens_per_expert = compute_constants(
-        seq_len_per_chip, num_routed_experts, num_experts_per_tok, num_devices, dispatch_group_size, capacity_factor
-    )
+    (
+        experts_per_chip,
+        metadata_len,
+        max_dispatch_buffer_token_size,
+        max_dispatched_tokens_per_expert,
+    ) = compute_constants(seq_len_per_chip, num_routed_experts, num_experts_per_tok, num_devices, dispatch_group_size)
     logger.debug(f"experts_per_chip={experts_per_chip}, metadata_len={metadata_len}")
-    logger.debug(f"max_dispatched_tokens_per_expert={max_dispatched_tokens_per_expert}")
+    logger.debug(
+        f"max_dispatch_buffer_token_size={max_dispatch_buffer_token_size}, max_dispatched_tokens_per_expert={max_dispatched_tokens_per_expert}"
+    )
 
     # ========================================
     # Step 1: Create weights
@@ -210,6 +214,7 @@ def test_ttnn_moe(
             num_experts_per_tok=num_experts_per_tok,
             metadata_len=metadata_len,
             max_dispatched_tokens_per_expert=max_dispatched_tokens_per_expert,
+            max_dispatch_buffer_token_size=max_dispatch_buffer_token_size,
             seq_len_per_chip=seq_len_per_chip,
             emb_dim=emb_dim,
             hidden_dim=hidden_dim,

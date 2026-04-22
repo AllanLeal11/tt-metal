@@ -220,7 +220,6 @@ def test_moe_reference_pcc():
     n_shared_experts = 1
     batch_size = 1
     dispatch_group_size = 1  # Single "chip" for host-side test
-    capacity_factor = 2.0
 
     logger.debug(f"Test config: seq_len={seq_len}, emb_dim={emb_dim}, hidden_dim={hidden_dim}")
     logger.debug(f"  n_routed_experts={n_routed_experts}, num_experts_per_tok={num_experts_per_tok}")
@@ -253,13 +252,17 @@ def test_moe_reference_pcc():
     )
 
     # Compute derived constants for tt_ref_moe
-    experts_per_chip, metadata_len, max_dispatched_tokens_per_expert = compute_constants(
+    (
+        experts_per_chip,
+        metadata_len,
+        max_dispatch_buffer_token_size,
+        max_dispatched_tokens_per_expert,
+    ) = compute_constants(
         seq_len_per_chip=seq_len,
         num_routed_experts=n_routed_experts,
         num_experts_per_tok=num_experts_per_tok,
         num_devices=dispatch_group_size,
         dispatch_group_size=dispatch_group_size,
-        capacity_factor=capacity_factor,
     )
 
     # Create expert dispatch table
@@ -278,6 +281,7 @@ def test_moe_reference_pcc():
         num_experts_per_tok=num_experts_per_tok,
         metadata_len=metadata_len,
         max_dispatched_tokens_per_expert=max_dispatched_tokens_per_expert,
+        max_dispatch_buffer_token_size=max_dispatch_buffer_token_size,
         seq_len_per_chip=seq_len,
         emb_dim=emb_dim,
         hidden_dim=hidden_dim,

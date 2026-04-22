@@ -87,7 +87,6 @@ def save_norm_output(
         f"isl{test_params['isl_total']}_"
         f"L{test_params['num_layers']}_"
         f"e{test_params['n_routed_experts']}_"
-        f"cf{test_params['capacity_factor']}_"
         f"gate{gate_str}_"
         f"{'pretrained' if test_params.get('use_pretrained') else 'random'}_"
         f"{input_source}.pt"

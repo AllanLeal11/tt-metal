@@ -42,7 +42,6 @@ def run_dispatch_op(mesh_device, use_l1_small):
     emb_dim = 128
     num_routed_experts = 16
     num_experts_per_tok = 2
-    capacity_factor = 2
 
     num_devices = mesh_device.get_num_devices()
     mesh_config = extract_mesh_config(mesh_device)
@@ -50,9 +49,12 @@ def run_dispatch_op(mesh_device, use_l1_small):
     dispatch_group_size = mesh_config.dispatch_group_size
     num_dispatch_groups = mesh_config.num_dispatch_groups
 
-    experts_per_chip, metadata_len, max_dispatched_tokens_per_expert = compute_constants(
-        seq_len_per_chip, num_routed_experts, num_experts_per_tok, num_devices, dispatch_group_size, capacity_factor
-    )
+    (
+        experts_per_chip,
+        metadata_len,
+        max_dispatch_buffer_token_size,
+        max_dispatched_tokens_per_expert,
+    ) = compute_constants(seq_len_per_chip, num_routed_experts, num_experts_per_tok, num_devices, dispatch_group_size)
 
     x, weights, indices = initialize_test_inputs(
         dispatch_group_size=dispatch_group_size,
@@ -121,6 +123,7 @@ def run_dispatch_op(mesh_device, use_l1_small):
         num_experts_per_tok=num_experts_per_tok,
         metadata_len=metadata_len,
         max_dispatched_tokens_per_expert=max_dispatched_tokens_per_expert,
+        max_dispatch_buffer_token_size=max_dispatch_buffer_token_size,
         cluster_axis=sp_axis,
         num_links=1,
         topology=ttnn.Topology.Linear,

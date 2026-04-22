@@ -26,25 +26,29 @@ from models.demos.deepseek_v3_d_p.tt.moe.visualization_helpers import log_expert
 
 
 @pytest.mark.parametrize(
-    "seq_len_per_chip, emb_dim, num_routed_experts, num_experts_per_tok, dispatch_group_size, capacity_factor",
+    "seq_len_per_chip, emb_dim, num_routed_experts, num_experts_per_tok, dispatch_group_size",
     [
-        (32, 64, 16, 4, 2, 2),
-        (512, 32, 256, 8, 4, 2),
+        (32, 64, 16, 4, 2),
+        (512, 32, 256, 8, 4),
     ],
     ids=["xs", "small"],
 )
 def test_torch_dispatch_combine(
-    seq_len_per_chip, emb_dim, num_routed_experts, num_experts_per_tok, dispatch_group_size, capacity_factor
+    seq_len_per_chip, emb_dim, num_routed_experts, num_experts_per_tok, dispatch_group_size
 ):
     """Test dispatch→combine round-trip using PyTorch reference implementation."""
     torch.manual_seed(42)
-    experts_per_chip, metadata_len, max_dispatched_tokens_per_expert = compute_constants(
+    (
+        experts_per_chip,
+        metadata_len,
+        max_dispatch_buffer_token_size,
+        max_dispatched_tokens_per_expert,
+    ) = compute_constants(
         seq_len_per_chip,
         num_routed_experts,
         num_experts_per_tok,
         num_devices=dispatch_group_size,
         dispatch_group_size=dispatch_group_size,
-        capacity_factor=capacity_factor,
     )
     print("\n")
 
@@ -77,6 +81,7 @@ def test_torch_dispatch_combine(
         num_experts_per_tok=num_experts_per_tok,
         metadata_len=metadata_len,
         max_dispatched_tokens_per_expert=max_dispatched_tokens_per_expert,
+        max_dispatch_buffer_token_size=max_dispatch_buffer_token_size,
         seq_len_per_chip=seq_len_per_chip,
         emb_dim=emb_dim,
         expert_dispatch_table=expert_dispatch_table,

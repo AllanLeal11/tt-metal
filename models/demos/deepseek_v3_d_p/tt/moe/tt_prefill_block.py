@@ -72,7 +72,6 @@ class TtPrefillBlock(LightweightModule):
         topology: ttnn.Topology = ttnn.Topology.Linear,
         sp_axis: int = 0,
         tp_axis: int = 1,
-        capacity_factor: int = 32,
         gate_fallback_mode: GateComputeMode = GateComputeMode.HOST_ALL,
         routed_expert_activations_dtype=ttnn.bfloat8_b,
         routed_expert_weights_dtype=ttnn.bfloat4_b,
@@ -131,13 +130,12 @@ class TtPrefillBlock(LightweightModule):
             mesh_config = extract_mesh_config(mesh_device)
             sp_factor = mesh_device.shape[sp_axis]
             seq_len_per_chip = seq_len // sp_factor
-            experts_per_chip, _, _ = compute_constants(
+            experts_per_chip, _, _, _ = compute_constants(
                 seq_len_per_chip,
                 DeepSeekV3Config.NUM_ROUTED_EXPERTS,
                 DeepSeekV3Config.NUM_EXPERTS_PER_TOKEN,
                 mesh_device.get_num_devices(),
                 mesh_config.dispatch_group_size,
-                capacity_factor,
             )
 
             TtMoe.build_ttnn_cache(
@@ -176,7 +174,6 @@ class TtPrefillBlock(LightweightModule):
         sp_axis: int = 0,
         tp_axis: int = 1,
         is_balanced: bool = False,
-        capacity_factor: int = 2,
         gate_fallback_mode: GateComputeMode = GateComputeMode.HOST_ALL,
         routed_expert_activations_dtype=ttnn.bfloat8_b,
         routed_expert_weights_dtype=ttnn.bfloat4_b,
@@ -241,7 +238,6 @@ class TtPrefillBlock(LightweightModule):
                 emb_dim=emb_dim,
                 num_links=num_links,
                 topology=topology,
-                capacity_factor=capacity_factor,
                 gate_fallback_mode=gate_fallback_mode,
                 routed_expert_activations_dtype=routed_expert_activations_dtype,
                 routed_expert_weights_dtype=routed_expert_weights_dtype,
@@ -269,7 +265,6 @@ class TtPrefillBlock(LightweightModule):
         emb_dim,
         num_links,
         topology,
-        capacity_factor,
         gate_fallback_mode,
         routed_expert_activations_dtype,
         routed_expert_weights_dtype,
@@ -282,13 +277,17 @@ class TtPrefillBlock(LightweightModule):
         sp_factor = mesh_device.shape[sp_axis]
         seq_len_per_chip = seq_len // sp_factor
 
-        experts_per_chip, metadata_len, max_dispatched_tokens_per_expert = compute_constants(
+        (
+            experts_per_chip,
+            metadata_len,
+            max_dispatch_buffer_token_size,
+            max_dispatched_tokens_per_expert,
+        ) = compute_constants(
             seq_len_per_chip=seq_len_per_chip,
             num_routed_experts=DeepSeekV3Config.NUM_ROUTED_EXPERTS,
             num_experts_per_tok=DeepSeekV3Config.NUM_EXPERTS_PER_TOKEN,
             num_devices=mesh_device.get_num_devices(),
             dispatch_group_size=mesh_config.dispatch_group_size,
-            capacity_factor=capacity_factor,
         )
 
         return TtMoe(
@@ -300,6 +299,7 @@ class TtPrefillBlock(LightweightModule):
             num_experts_per_tok=DeepSeekV3Config.NUM_EXPERTS_PER_TOKEN,
             metadata_len=metadata_len,
             max_dispatched_tokens_per_expert=max_dispatched_tokens_per_expert,
+            max_dispatch_buffer_token_size=max_dispatch_buffer_token_size,
             seq_len_per_chip=seq_len_per_chip,
             emb_dim=emb_dim,
             hidden_dim=DeepSeekV3Config.MOE_INTERMEDIATE_SIZE,

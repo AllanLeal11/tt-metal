@@ -65,7 +65,6 @@ def test_moe_weights_cold_warm_cache(mesh_device, device_params, gate_mode):
     hidden_dim = 512
     num_routed_experts = 256  # Required by gate kernel
     num_experts_per_tok = 8  # Required by gate kernel
-    capacity_factor = 2
 
     # Compute constants
     num_devices = mesh_device.get_num_devices()
@@ -73,9 +72,12 @@ def test_moe_weights_cold_warm_cache(mesh_device, device_params, gate_mode):
     dispatch_group_size = mesh_config.dispatch_group_size
     num_dispatch_groups = mesh_config.num_dispatch_groups
 
-    experts_per_chip, metadata_len, max_dispatched_tokens_per_expert = compute_constants(
-        seq_len_per_chip, num_routed_experts, num_experts_per_tok, num_devices, dispatch_group_size, capacity_factor
-    )
+    (
+        experts_per_chip,
+        metadata_len,
+        max_dispatch_buffer_token_size,
+        max_dispatched_tokens_per_expert,
+    ) = compute_constants(seq_len_per_chip, num_routed_experts, num_experts_per_tok, num_devices, dispatch_group_size)
     total_experts = num_devices * experts_per_chip
 
     logger.info(f"Test params: experts_per_chip={experts_per_chip}, max_tokens={max_dispatched_tokens_per_expert}")
@@ -119,6 +121,7 @@ def test_moe_weights_cold_warm_cache(mesh_device, device_params, gate_mode):
         num_experts_per_tok=num_experts_per_tok,
         metadata_len=metadata_len,
         max_dispatched_tokens_per_expert=max_dispatched_tokens_per_expert,
+        max_dispatch_buffer_token_size=max_dispatch_buffer_token_size,
         seq_len_per_chip=seq_len_per_chip,
         gate_weights=gate_weights,
         emb_dim=emb_dim,
@@ -183,6 +186,7 @@ def test_moe_weights_cold_warm_cache(mesh_device, device_params, gate_mode):
         num_experts_per_tok=num_experts_per_tok,
         metadata_len=metadata_len,
         max_dispatched_tokens_per_expert=max_dispatched_tokens_per_expert,
+        max_dispatch_buffer_token_size=max_dispatch_buffer_token_size,
         seq_len_per_chip=seq_len_per_chip,
         gate_weights=None,  # Cache-only mode
         emb_dim=emb_dim,
@@ -220,6 +224,7 @@ def test_moe_weights_cold_warm_cache(mesh_device, device_params, gate_mode):
         num_experts_per_tok=num_experts_per_tok,
         metadata_len=metadata_len,
         max_dispatched_tokens_per_expert=max_dispatched_tokens_per_expert,
+        max_dispatch_buffer_token_size=max_dispatch_buffer_token_size,
         seq_len_per_chip=seq_len_per_chip,
         gate_weights=None,
         emb_dim=emb_dim,

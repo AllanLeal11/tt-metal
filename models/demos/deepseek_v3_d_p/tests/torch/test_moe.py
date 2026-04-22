@@ -38,12 +38,12 @@ from models.demos.deepseek_v3_d_p.tt.moe.init_helpers import (
 
 
 @pytest.mark.parametrize(
-    "seq_len_per_chip, emb_dim, hidden_dim, num_routed_experts, num_experts_per_tok, dispatch_group_size, capacity_factor, use_gate, model_id, layer_idx",
+    "seq_len_per_chip, emb_dim, hidden_dim, num_routed_experts, num_experts_per_tok, dispatch_group_size, use_gate, model_id, layer_idx",
     [
         # fmt: off
-        pytest.param(32, 64, 128, 24, 4, 4, 2, False, None, None, id="random-weights"),
-        pytest.param(32, 224, 64, 256, 8, 4, 4, True, None, None, id="random-weights-gate"),
-        pytest.param(32,DeepSeekV3Config.EMB_SIZE,DeepSeekV3Config.MOE_INTERMEDIATE_SIZE,DeepSeekV3Config.NUM_ROUTED_EXPERTS,DeepSeekV3Config.NUM_EXPERTS_PER_TOKEN,4,4,False,"deepseek-ai/DeepSeek-V3",3,id="hf-weights",marks=pytest.mark.slow,
+        pytest.param(32, 64, 128, 24, 4, 4, False, None, None, id="random-weights"),
+        pytest.param(32, 224, 64, 256, 8, 4, True, None, None, id="random-weights-gate"),
+        pytest.param(32,DeepSeekV3Config.EMB_SIZE,DeepSeekV3Config.MOE_INTERMEDIATE_SIZE,DeepSeekV3Config.NUM_ROUTED_EXPERTS,DeepSeekV3Config.NUM_EXPERTS_PER_TOKEN,4,False,"deepseek-ai/DeepSeek-V3",3,id="hf-weights",marks=pytest.mark.slow,
         ),
         # fmt: on
     ],
@@ -55,7 +55,6 @@ def test_moe(
     num_routed_experts,
     num_experts_per_tok,
     dispatch_group_size,
-    capacity_factor,
     use_gate,
     model_id,
     layer_idx,
@@ -78,13 +77,17 @@ def test_moe(
     logger.debug(f"{'='*60}\n")
 
     # Compute derived constants
-    experts_per_chip, metadata_len, max_dispatched_tokens_per_expert = compute_constants(
+    (
+        experts_per_chip,
+        metadata_len,
+        max_dispatch_buffer_token_size,
+        max_dispatched_tokens_per_expert,
+    ) = compute_constants(
         seq_len_per_chip,
         num_routed_experts,
         num_experts_per_tok,
         num_devices=dispatch_group_size,
         dispatch_group_size=dispatch_group_size,
-        capacity_factor=capacity_factor,
     )
 
     # Create expert dispatch table
@@ -139,6 +142,7 @@ def test_moe(
         num_experts_per_tok=num_experts_per_tok,
         metadata_len=metadata_len,
         max_dispatched_tokens_per_expert=max_dispatched_tokens_per_expert,
+        max_dispatch_buffer_token_size=max_dispatch_buffer_token_size,
         seq_len_per_chip=seq_len_per_chip,
         emb_dim=emb_dim,
         hidden_dim=hidden_dim,
@@ -189,8 +193,7 @@ def test_moe(
     assert intermediates.dispatched_buffer.shape == (
         1,
         dispatch_group_size,
-        experts_per_chip,
-        max_dispatched_tokens_per_expert,
+        max_dispatch_buffer_token_size,
         emb_dim,
     )
     assert intermediates.shared_output.shape == (dispatch_group_size, seq_len_per_chip, emb_dim)
