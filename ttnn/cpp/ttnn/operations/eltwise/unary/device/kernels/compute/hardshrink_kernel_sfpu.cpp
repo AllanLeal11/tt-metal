@@ -3,81 +3,61 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <cstdint>
-#include <cstring>
-#include "api/compute/common.h"
-#include "api/compute/eltwise_binary.h"
-#include "api/compute/eltwise_binary_sfpu.h"
-#include "api/compute/tile_move_copy.h"
-#include "api/compute/eltwise_unary/eltwise_unary.h"
-#include "api/compute/eltwise_unary/sfpu_split_includes.h"
-#include "api/compute/compute_kernel_api.h"
-#include "api/compute/eltwise_unary/fill.h"
-#include "api/compute/eltwise_unary/comp.h"
+#include "ttnn/cpp/ttnn/kernel_lib/sfpu_helpers.hpp"
 
 void kernel_main() {
+    using namespace compute_kernel_lib;
+
     const uint32_t packed_scalar = get_arg_val<uint32_t>(0);
     const auto lambd = reinterpret_cast<const float*>(&packed_scalar);
     uint32_t per_core_block_cnt = get_compile_time_arg_val(0);
     uint32_t per_core_block_dim = get_compile_time_arg_val(1);
-    constexpr auto cb_input = tt::CBIndex::c_0;
-    constexpr auto cb_output = tt::CBIndex::c_2;
-    constexpr auto cb_tmp0 = tt::CBIndex::c_1;
+
+    constexpr uint32_t cb_input = static_cast<uint32_t>(tt::CBIndex::c_0);
+    constexpr uint32_t cb_tmp0 = static_cast<uint32_t>(tt::CBIndex::c_1);
+    constexpr uint32_t cb_output = static_cast<uint32_t>(tt::CBIndex::c_2);
+
     init_sfpu(cb_input, cb_output);
 
-    // a⋅1(a+λ<0)+a⋅1(a−λ>0)
+    // hardshrink(x) = x·1(x + λ < 0) + x·1(x − λ > 0)
+    //
+    // Chain 1 (→ cb_tmp0): ltz(λ + x) · x
+    //   D0 = λ (FillScalar), D1 = x (Load, no pop — input reused in chain 2)
+    //   D0 = D0 + D1 = λ + x  (SfpuAdd)
+    //   D0 = ltz(D0)           (Ltz)
+    //   D0 = D0 · D1 = ltz(λ+x)·x  (SfpuMul)
+    //
+    // Chain 2 (← cb_tmp0, → cb_output): gtz(x − λ) · x + chain1_result
+    //   D1 = λ (FillScalar), D0 = x (Load WaitNoPop — idempotent, input still there)
+    //   D0 = D0 − D1 = x − λ  (SfpuSub)
+    //   D0 = gtz(D0)           (Gtz)
+    //   D1 = x (Load NoWaitPop — reads input again, pops it)
+    //   D0 = D0 · D1 = gtz(x−λ)·x  (SfpuMul)
+    //   D1 = chain1_result (Load from cb_tmp0, WaitAndPop)
+    //   D0 = D0 + D1 = hardshrink(x)  (SfpuAdd)
+
     for (uint32_t block_index = 0; block_index < per_core_block_cnt; block_index++) {
-        cb_reserve_back(cb_output, per_core_block_dim);
-        for (uint32_t tile_index = 0; tile_index < per_core_block_dim; ++tile_index) {
-            cb_wait_front(cb_input, 1);
-            cb_reserve_back(cb_tmp0, 1);
-            tile_regs_acquire();
+        auto chain1 = sfpu_chain(
+            FillScalar<Dst::D0>{*lambd},
+            Load<cb_input, Dst::D1, LoadPolicy::WaitNoPop>{},
+            SfpuAdd<Dst::D0, Dst::D1, Dst::D0>{},
+            Ltz<Dst::D0>{},
+            SfpuMul<Dst::D0, Dst::D1, Dst::D0>{});
 
-            fill_tile(0, *lambd);
-            copy_tile_to_dst_init_short(cb_input);
-            copy_tile(cb_input, 0, 1);
-            add_binary_tile_init();
-            add_binary_tile(0, 1, 0);
-            ltz_tile(0);
-            mul_binary_tile_init();
-            mul_binary_tile(0, 1, 0);
+        sfpu_pipeline<SfpuOutputPolicy::PerTile, SfpuDataFormatReconfig::NONE, SfpuBatching::Disabled>(
+            chain1, cb_tmp0, per_core_block_dim);
 
-            tile_regs_commit();
+        auto chain2 = sfpu_chain(
+            FillScalar<Dst::D1>{*lambd},
+            Load<cb_input, Dst::D0, LoadPolicy::WaitNoPop>{},
+            SfpuSub<Dst::D0, Dst::D1, Dst::D0>{},
+            Gtz<Dst::D0>{},
+            Load<cb_input, Dst::D1, LoadPolicy::NoWaitPop>{},
+            SfpuMul<Dst::D0, Dst::D1, Dst::D0>{},
+            Load<cb_tmp0, Dst::D1, LoadPolicy::WaitAndPop>{},
+            SfpuAdd<Dst::D0, Dst::D1, Dst::D0>{});
 
-            tile_regs_wait();
-
-            pack_tile(0, cb_tmp0);
-            tile_regs_release();
-
-            cb_push_back(cb_tmp0, 1);
-            cb_wait_front(cb_tmp0, 1);
-            tile_regs_acquire();
-
-            fill_tile(1, *lambd);
-
-            copy_tile_to_dst_init_short(cb_input);
-            copy_tile(cb_input, 0, 0);
-            sub_binary_tile_init();
-            sub_binary_tile(0, 1, 0);
-            gtz_tile(0);
-            copy_tile_to_dst_init_short(cb_input);
-            copy_tile(cb_input, 0, 1);
-            mul_binary_tile_init();
-            mul_binary_tile(0, 1, 0);
-            copy_tile_to_dst_init_short(cb_tmp0);
-            copy_tile(cb_tmp0, 0, 1);
-            add_binary_tile_init();
-            add_binary_tile(0, 1, 0);
-
-            tile_regs_commit();
-
-            tile_regs_wait();
-
-            pack_tile(0, cb_output);
-            tile_regs_release();
-
-            cb_pop_front(cb_input, 1);
-            cb_pop_front(cb_tmp0, 1);
-        }
-        cb_push_back(cb_output, per_core_block_dim);
+        sfpu_pipeline<SfpuOutputPolicy::Bulk, SfpuDataFormatReconfig::NONE, SfpuBatching::Disabled>(
+            chain2, cb_output, per_core_block_dim);
     }
 }
