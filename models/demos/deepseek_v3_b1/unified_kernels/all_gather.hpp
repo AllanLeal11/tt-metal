@@ -145,18 +145,25 @@ template <typename CTArgs>
 class TransportSender {
 public:
     void operator()(const TransportArgs& args) { impl(args); }
+    void open_connections(const TransportArgs& args, bool reset_header_pool = true) {
+        open_connections_impl(args, reset_header_pool);
+    }
 
 private:
-    void impl([[maybe_unused]] const TransportArgs& args) {
 #if defined(COMPILE_FOR_NCRISC) || defined(COMPILE_FOR_BRISC)
-        PacketHeaderPool::reset();
+    std::array<tt::tt_fabric::WorkerToFabricEdmSender, CTArgs::num_links> connections;
+    std::array<volatile tt_l1_ptr PACKET_HEADER_TYPE*, CTArgs::num_links> headers;
+#endif
+    void open_connections_impl([[maybe_unused]] const TransportArgs& args, [[maybe_unused]] bool reset_header_pool) {
+#if defined(COMPILE_FOR_NCRISC) || defined(COMPILE_FOR_BRISC)
+        if (reset_header_pool) {
+            PacketHeaderPool::reset();
+        }
 
         size_t arg_idx = size_t(args.per_core_rta_start_idx);
         const uint32_t dst_mesh_id = get_arg_val<uint32_t>(arg_idx++);
         const uint32_t dst_chip_id = get_arg_val<uint32_t>(arg_idx++);
 
-        std::array<tt::tt_fabric::WorkerToFabricEdmSender, CTArgs::num_links> connections;
-        std::array<volatile PACKET_HEADER_TYPE*, CTArgs::num_links> headers;
         for (uint32_t link = 0; link < CTArgs::num_links; link++) {
             connections[link] =
                 tt::tt_fabric::WorkerToFabricEdmSender::build_from_args<ProgrammableCoreType::TENSIX>(arg_idx);
@@ -165,6 +172,10 @@ private:
             fabric_set_unicast_route(headers[link], dst_chip_id, dst_mesh_id);
             connections[link].open_finish();
         }
+#endif
+    }
+    void impl([[maybe_unused]] const TransportArgs& args) {
+#if defined(COMPILE_FOR_NCRISC) || defined(COMPILE_FOR_BRISC)
 
         const uint64_t dest_output_noc =
             safe_get_noc_addr(args.dest_noc_x, args.dest_noc_y, args.dest_output_base_addr, 0);

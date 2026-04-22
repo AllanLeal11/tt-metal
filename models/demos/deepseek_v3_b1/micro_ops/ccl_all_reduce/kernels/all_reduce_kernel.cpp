@@ -30,6 +30,7 @@ void kernel_main() {
         args.per_core_rta_start_idx = 0;
 
         deepseek_b1_ops::AllReduce::WriterSingleLink<WriterCT> writer;
+        writer.open_connections(args);
         writer(args);
     }
 #endif
