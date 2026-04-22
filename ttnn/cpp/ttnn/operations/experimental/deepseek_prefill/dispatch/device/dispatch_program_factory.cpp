@@ -156,7 +156,6 @@ ttnn::device_operation::CachedProgram<DispatchSharedVariables> create_at_tile_la
 
     // Divide total_row_cores into num_cores groups.
     // Within each group: center core = sender, surrounding cores = that sender's idle cores.
-    // Center-placement balances worker→sender NOC traffic in both horizontal directions.
     uint32_t base_group_size = total_row_cores / num_cores;
     uint32_t extra_groups = total_row_cores % num_cores;
 
