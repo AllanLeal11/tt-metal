@@ -17,9 +17,9 @@ inline void _llk_math_eltwise_unary_sfpu_params_(
     LLK_ASSERT((dst_index_in < get_dest_max_tiles<DST_SYNC_MODE, DST_ACCUM_MODE, DstTileShape::Tile32x32>()), "dst_index_in exceeds max dest tiles");
     LLK_ASSERT((dst_index_out < get_dest_max_tiles<DST_SYNC_MODE, DST_ACCUM_MODE, DstTileShape::Tile32x32>()), "dst_index_out exceeds max dest tiles");
 
-    // Phase 1: hardware addressed from dst_index_in.
-    // Phase 2 TODO: add separate write-address setup when dst_index_in != dst_index_out.
-    math::set_dst_write_addr<DstTileShape::Tile32x32, UnpackDestination::SrcRegs>(dst_index_in);
+    // Set base to 0: callbacks address tiles absolutely via dst_reg[idx * SFP_DST_TILE_ROWS].
+    // Follows the binary SFPU pattern (_llk_math_eltwise_binary_sfpu_params_).
+    math::set_dst_write_addr<DstTileShape::Tile32x32, UnpackDestination::SrcRegs>(0);
     math::set_addr_mod_base();
 
     TTI_STALLWAIT(p_stall::STALL_SFPU, p_stall::MATH);
@@ -31,7 +31,7 @@ inline void _llk_math_eltwise_unary_sfpu_params_(
 #pragma GCC unroll 0
         for (int face = 0; face < 2; face++)
         {
-            std::forward<Callable>(sfpu_func)(std::forward<Args>(args)...);
+            std::forward<Callable>(sfpu_func)(dst_index_in, dst_index_out, std::forward<Args>(args)...);
             TTI_SETRWC(p_setrwc::CLR_NONE, p_setrwc::CR_D, 8, 0, 0, p_setrwc::SET_D);
             TTI_SETRWC(p_setrwc::CLR_NONE, p_setrwc::CR_D, 8, 0, 0, p_setrwc::SET_D);
         }
@@ -47,7 +47,7 @@ inline void _llk_math_eltwise_unary_sfpu_params_(
 #pragma GCC unroll 0
         for (int face = 0; face < 2; face++)
         {
-            std::forward<Callable>(sfpu_func)(std::forward<Args>(args)...);
+            std::forward<Callable>(sfpu_func)(dst_index_in, dst_index_out, std::forward<Args>(args)...);
             TTI_SETRWC(p_setrwc::CLR_NONE, p_setrwc::CR_D, 8, 0, 0, p_setrwc::SET_D);
             TTI_SETRWC(p_setrwc::CLR_NONE, p_setrwc::CR_D, 8, 0, 0, p_setrwc::SET_D);
             TTI_SETRWC(p_setrwc::CLR_NONE, p_setrwc::CR_D, 8, 0, 0, p_setrwc::SET_D);
@@ -60,14 +60,14 @@ inline void _llk_math_eltwise_unary_sfpu_params_(
 #pragma GCC unroll 0
         for (int face = 0; face < 4; face++)
         {
-            std::forward<Callable>(sfpu_func)(std::forward<Args>(args)...);
+            std::forward<Callable>(sfpu_func)(dst_index_in, dst_index_out, std::forward<Args>(args)...);
             TTI_SETRWC(p_setrwc::CLR_NONE, p_setrwc::CR_D, 8, 0, 0, p_setrwc::SET_D);
             TTI_SETRWC(p_setrwc::CLR_NONE, p_setrwc::CR_D, 8, 0, 0, p_setrwc::SET_D);
         }
     }
     else
     {
-        std::forward<Callable>(sfpu_func)(std::forward<Args>(args)...);
+        std::forward<Callable>(sfpu_func)(dst_index_in, dst_index_out, std::forward<Args>(args)...);
     }
     math::clear_dst_reg_addr();
 
