@@ -12,7 +12,7 @@ using namespace sfpi;
 namespace ckernel::sfpu {
 
 template <bool APPROXIMATION_MODE, int ITERATIONS>
-inline void calculate_signbit() {
+inline void calculate_signbit(std::uint32_t dst_index_in, std::uint32_t dst_index_out) {
     // This uses SFPLOADMACRO to achieve a throughput of 1 cycle per input row.
     //
     // Notation: [x] means scheduled by SFPLOADMACRO with VD=x.
@@ -46,7 +46,7 @@ inline void calculate_signbit() {
 }
 
 template <bool APPROXIMATION_MODE, int ITERATIONS>
-inline void calculate_signbit_int32() {
+inline void calculate_signbit_int32(std::uint32_t dst_index_in, std::uint32_t dst_index_out) {
     // This uses SFPLOADMACRO to achieve a throughput of 1 cycle per input row.
     //
     // Notation: [x] means scheduled by SFPLOADMACRO with VD=x.
