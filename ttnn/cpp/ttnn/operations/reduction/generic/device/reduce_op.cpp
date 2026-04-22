@@ -118,7 +118,7 @@ Tensor reduce(
     // sqrt(scaler) in ReduceSingleCoreHwProgramFactory::create.
     // However, sqrt of a negative number is NaN, so negative scalers
     // must take the two-step W-then-H path where the scaler is applied once.
-    if (is_multicore_hw || (reduce_dim == tt::tt_metal::ReduceOpDim::HW && scaler < 0)) {
+    if (is_multicore_hw || (reduce_dim == tt::tt_metal::ReduceOpDim::HW)) {
         // Multi-core HW reduction: first reduce W, then reduce H on the result
         const Tensor output_tensor = ttnn::prim::reduce(
             tilized_input,

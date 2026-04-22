@@ -918,7 +918,7 @@ def test_torch_compatibility(device, tensor_shape, keepdim, dim, op, use_legacy)
     ],
 )
 @pytest.mark.parametrize("op", ["max", "min"])
-@pytest.mark.parametrize("dim", [-2, -1])
+@pytest.mark.parametrize("dim", [-1, -2, (-2, -1)])
 @pytest.mark.parametrize("scalar", [2.43, 2.0, -2.43, -2.0])
 def test_min_max_scalar(device, input_shape, op, dim, scalar):
     torch.manual_seed(42)
