@@ -44,8 +44,7 @@ void kernel_main() {
             Ltz<Dst::D0>{},
             SfpuMul<Dst::D0, Dst::D1, Dst::D0>{});
 
-        sfpu_pipeline<SfpuOutputPolicy::PerTile, SfpuDataFormatReconfig::NONE, SfpuBatching::Disabled>(
-            chain1, cb_tmp0, per_core_block_dim);
+        sfpu_pipeline<SfpuOutputPolicy::PerTile, SfpuDataFormatReconfig::NONE>(chain1, cb_tmp0, per_core_block_dim);
 
         auto chain2 = sfpu_chain(
             FillScalar<Dst::D1>{*lambd},
@@ -57,7 +56,6 @@ void kernel_main() {
             Load<cb_tmp0, Dst::D1, LoadPolicy::WaitAndPop>{},
             SfpuAdd<Dst::D0, Dst::D1, Dst::D0>{});
 
-        sfpu_pipeline<SfpuOutputPolicy::Bulk, SfpuDataFormatReconfig::NONE, SfpuBatching::Disabled>(
-            chain2, cb_output, per_core_block_dim);
+        sfpu_pipeline<SfpuOutputPolicy::Bulk, SfpuDataFormatReconfig::NONE>(chain2, cb_output, per_core_block_dim);
     }
 }
