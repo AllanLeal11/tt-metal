@@ -316,7 +316,7 @@ inline void _sfpu_unary_power_fp32_(const uint32_t exponent) {
  * @param exponent The exponent as IEEE 754 float bits (reinterpreted as uint32_t)
  */
 template <bool APPROXIMATION_MODE, bool is_fp32_dest_acc_en, int ITERATIONS>
-inline void calculate_unary_power(const uint32_t exponent) {
+inline void calculate_unary_power(std::uint32_t dst_index_in, std::uint32_t dst_index_out, const uint32_t exponent) {
     if constexpr (is_fp32_dest_acc_en) {
         _sfpu_unary_power_fp32_<ITERATIONS>(exponent);
     } else {
@@ -330,13 +330,15 @@ inline void calculate_unary_power(const uint32_t exponent) {
  * @param exponent Non-negative integer exponent value
  */
 template <bool APPROXIMATION_MODE, int ITERATIONS>
-inline void calculate_unary_power_iterative(const uint32_t exponent) {
+inline void calculate_unary_power_iterative(
+    std::uint32_t dst_index_in, std::uint32_t dst_index_out, const uint32_t exponent) {
+    constexpr std::uint32_t SFP_DST_TILE_ROWS = 32;
     // iterative approach for positive integer exponents
 #pragma GCC unroll 8
     for (int d = 0; d < ITERATIONS; d++) {
-        sfpi::vFloat in = sfpi::dst_reg[0];
+        sfpi::vFloat in = sfpi::dst_reg[dst_index_in * SFP_DST_TILE_ROWS];
         if (exponent == 0) {
-            sfpi::dst_reg[0] = 1.0f;
+            sfpi::dst_reg[dst_index_out * SFP_DST_TILE_ROWS] = 1.0f;
         } else {
             sfpi::vFloat result = in;
             uint32_t exp = exponent - 1;
@@ -348,7 +350,7 @@ inline void calculate_unary_power_iterative(const uint32_t exponent) {
                 in *= in;
                 exp >>= 1;
             }
-            sfpi::dst_reg[0] = result;
+            sfpi::dst_reg[dst_index_out * SFP_DST_TILE_ROWS] = result;
         }
         sfpi::dst_reg++;
     }

@@ -134,7 +134,8 @@ inline void calculate_softplus_body(const float beta, const float beta_reciproca
 }
 
 template <bool APPROXIMATION_MODE, bool is_fp32_dest_acc_en = false, int ITERATIONS = 8>
-inline void calculate_softplus(uint param0, uint param1, uint param2) {
+inline void calculate_softplus(
+    std::uint32_t dst_index_in, std::uint32_t dst_index_out, uint param0, uint param1, uint param2) {
     const float beta = Converter::as_float(param0);
     const float beta_reciprocal = Converter::as_float(param1);
     const float threshold = Converter::as_float(param2);

@@ -27,7 +27,7 @@ sfpi_inline void calculate_unary_max_min_float_body() {
 }
 
 template <bool IS_MAX_OP = true, bool APPROXIMATION_MODE, int ITERATIONS = 8>
-inline void calculate_unary_max_min(uint value) {
+inline void calculate_unary_max_min(std::uint32_t dst_index_in, std::uint32_t dst_index_out, uint value) {
     // This uses SFPLOADMACRO to achieve a throughput of 2 cycles per input row.
     //
     // Notation: [x] means scheduled by SFPLOADMACRO with VD=x.
@@ -91,7 +91,7 @@ sfpi_inline void calculate_unary_max_min_int32_body(uint value) {
 }
 
 template <bool IS_MAX_OP = true, bool IS_UNSIGNED = false, bool APPROXIMATION_MODE, int ITERATIONS = 8>
-inline void calculate_unary_max_min_int32(uint value) {
+inline void calculate_unary_max_min_int32(std::uint32_t dst_index_in, std::uint32_t dst_index_out, uint value) {
     load_value_param_int<IS_UNSIGNED>(value);
 
 #ifdef DISABLE_SFPLOADMACRO
