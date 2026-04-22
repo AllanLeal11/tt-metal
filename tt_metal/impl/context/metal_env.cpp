@@ -271,7 +271,7 @@ void MetalEnvImpl::teardown_fabric_config() {
     // which leads to topology mapper failures on t3k
     std::lock_guard lock{control_plane_mutex_};
     if (control_plane_) {
-        control_plane->clear_fabric_context();
+        control_plane_->clear_fabric_context();
     }
 }
 
